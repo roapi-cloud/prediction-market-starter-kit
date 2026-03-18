@@ -44,14 +44,10 @@ cd prediction-market-starter-kit
 pnpm install
 ```
 
-Create `.env.local`:
+Copy the example env file and fill in your credentials:
 
-```
-NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
-POLY_BUILDER_API_KEY=your_builder_api_key
-POLY_BUILDER_SECRET=your_builder_secret
-POLY_BUILDER_PASSPHRASE=your_builder_passphrase
-NEXT_PUBLIC_POLYGON_RPC_URL=https://polygon-rpc.com
+```bash
+cp .env.example .env.local
 ```
 
 Run the dev server:
