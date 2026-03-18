@@ -18,7 +18,7 @@ const ERC20_ABI = [
 
 const client = createPublicClient({
   chain: polygon,
-  transport: http(),
+  transport: http(process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon-rpc.com"),
 })
 
 export function useUsdcBalance(address: string | undefined) {

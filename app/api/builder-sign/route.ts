@@ -2,6 +2,12 @@ import { NextResponse } from "next/server"
 import { buildHmacSignature } from "@polymarket/builder-signing-sdk"
 
 export async function POST(request: Request) {
+  const origin = request.headers.get("origin")
+  const referer = request.headers.get("referer")
+  if (!origin && !referer) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   const key = process.env.POLY_BUILDER_API_KEY
   const secret = process.env.POLY_BUILDER_SECRET
   const passphrase = process.env.POLY_BUILDER_PASSPHRASE

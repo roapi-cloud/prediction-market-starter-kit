@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePrivy, useFundWallet } from "@privy-io/react-auth"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Login01Icon, Wallet01Icon } from "@hugeicons/core-free-icons"
+import { Login01Icon } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import Avatar from "boring-avatars"

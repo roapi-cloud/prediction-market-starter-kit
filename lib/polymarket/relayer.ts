@@ -62,23 +62,18 @@ export function deriveSafeAddress(eoaAddress: string): string {
 }
 
 export async function isSafeDeployed(
-  relayClient: RelayClient,
+  _relayClient: RelayClient,
   safeAddress: string,
 ): Promise<boolean> {
   try {
-    const deployed = await relayClient.getDeployed(safeAddress)
-    return !!deployed
+    const publicClient = createPublicClient({
+      chain: polygon,
+      transport: http(process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon-rpc.com"),
+    })
+    const code = await publicClient.getCode({ address: safeAddress as `0x${string}` })
+    return !!code && code !== "0x"
   } catch {
-    try {
-      const publicClient = createPublicClient({
-        chain: polygon,
-        transport: http(process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon-rpc.com"),
-      })
-      const code = await publicClient.getCode({ address: safeAddress as `0x${string}` })
-      return !!code && code !== "0x"
-    } catch {
-      return false
-    }
+    return false
   }
 }
 
