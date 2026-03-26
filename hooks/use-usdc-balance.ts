@@ -26,10 +26,7 @@ export function useUsdcBalance(address: string | undefined) {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!address) {
-      setBalance(null)
-      return
-    }
+    if (!address) return
 
     let cancelled = false
     setLoading(true)

@@ -61,6 +61,31 @@ export function TradeCard({
     ? `$${balanceNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : `${balanceNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
 
+  const handleTransferToSafe = useCallback(async () => {
+    if (!walletAddr || !safeAddress || eoaBalanceNum <= 0) return
+
+    setIsTransferring(true)
+    const toastId = toast.loading(`Transferring $${eoaBalanceNum.toFixed(2)} to trading wallet...`)
+
+    try {
+      const wallet = wallets.find((w) => w.address === walletAddr) ?? wallets[0]
+      if (!wallet) throw new Error("No wallet found")
+      await wallet.switchChain(polygon.id)
+      const provider = await wallet.getEthereumProvider()
+      const signer = createEthersSigner(provider)
+
+      const amountRaw = parseUnits(rawEoaBalance!, 6)
+      await transferToSafe(signer, safeAddress, amountRaw)
+
+      toast.success(`Transferred $${eoaBalanceNum.toFixed(2)} to trading wallet`, { id: toastId })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Transfer failed"
+      toast.error(msg, { id: toastId })
+    } finally {
+      setIsTransferring(false)
+    }
+  }, [walletAddr, safeAddress, eoaBalanceNum, rawEoaBalance, wallets])
+
   useEffect(() => {
     if (selectedSide) setSide(selectedSide)
   }, [selectedSide])
@@ -133,31 +158,6 @@ export function TradeCard({
       })
     }
   }
-
-  const handleTransferToSafe = useCallback(async () => {
-    if (!walletAddr || !safeAddress || eoaBalanceNum <= 0) return
-
-    setIsTransferring(true)
-    const toastId = toast.loading(`Transferring $${eoaBalanceNum.toFixed(2)} to trading wallet...`)
-
-    try {
-      const wallet = wallets.find((w) => w.address === walletAddr) ?? wallets[0]
-      if (!wallet) throw new Error("No wallet found")
-      await wallet.switchChain(polygon.id)
-      const provider = await wallet.getEthereumProvider()
-      const signer = createEthersSigner(provider)
-
-      const amountRaw = parseUnits(rawEoaBalance!, 6)
-      await transferToSafe(signer, safeAddress, amountRaw)
-
-      toast.success(`Transferred $${eoaBalanceNum.toFixed(2)} to trading wallet`, { id: toastId })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Transfer failed"
-      toast.error(msg, { id: toastId })
-    } finally {
-      setIsTransferring(false)
-    }
-  }, [walletAddr, safeAddress, eoaBalanceNum, rawEoaBalance, wallets])
 
   const isLoading = isPlacingOrder || isInitializing
   const insufficientBalance = authenticated && amount > 0 && amount > balanceNum

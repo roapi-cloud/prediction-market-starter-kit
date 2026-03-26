@@ -28,10 +28,7 @@ export function usePositionBalance(address: string | undefined, tokenId: string 
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!address || !tokenId) {
-      setBalance(null)
-      return
-    }
+    if (!address || !tokenId) return
 
     let cancelled = false
     setLoading(true)

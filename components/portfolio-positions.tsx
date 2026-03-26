@@ -167,13 +167,10 @@ export function PortfolioPositions() {
   const [positions, setPositions] = useState<Position[]>([])
   const [closed, setClosed] = useState<ClosedPosition[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!!walletAddr)
 
   useEffect(() => {
-    if (!walletAddr) {
-      setLoading(false)
-      return
-    }
+    if (!walletAddr) return
 
     setLoading(true)
     Promise.all([
