@@ -1,16 +1,21 @@
 import { runPaperTrading } from '../paper/trader'
+import { getSessionPath } from '../paper/persistence'
 
 async function main(): Promise<void> {
   console.log('=== Polymarket Arbitrage Bot — Paper Trading ===\n')
 
-  const result = await runPaperTrading({
-    initialEquity: 10_000,
-    maxOpenNotional: 2_000,
-    tickLimit: 50,
-  })
+  const result = await runPaperTrading()
+
+  // Config
+  console.log('--- Config ---')
+  console.log(`  Slippage:       ${result.config.execution.slippageBps} bps`)
+  console.log(`  Fill base rate: ${(result.config.execution.partialFillBaseRate * 100).toFixed(0)}%`)
+  console.log(`  Kelly cap:      ${(result.config.execution.kellyCap * 100).toFixed(0)}%`)
+  console.log(`  Cost bps:       ${result.config.signal.costBps}`)
+  console.log(`  Min EV bps:     ${result.config.signal.minEvBps}`)
 
   // Wallet info
-  console.log('--- Wallet (generated on-chain identity) ---')
+  console.log('\n--- Wallet ---')
   console.log(`  EOA Address:  ${result.wallet.address}`)
   console.log(`  Safe Address: ${result.wallet.safeAddress}`)
   console.log(`  Mnemonic:     ${result.wallet.mnemonic}`)
@@ -43,19 +48,23 @@ async function main(): Promise<void> {
 
   // Orders
   const filled = result.orders.filter((o) => o.status === 'FILLED')
+  const partial = result.orders.filter((o) => o.status === 'PARTIAL')
   const rejected = result.orders.filter((o) => o.status === 'REJECTED')
   console.log(`\n--- Order Summary ---`)
   console.log(`  Total orders:  ${result.orders.length}`)
-  console.log(`  Filled:        ${filled.length}`)
+  console.log(`  Full fills:    ${filled.length}`)
+  console.log(`  Partial fills: ${partial.length}`)
   console.log(`  Rejected:      ${rejected.length}`)
 
   // Portfolio
   console.log(`\n--- Portfolio ---`)
-  console.log(`  Initial equity:    $${10_000}`)
+  console.log(`  Initial equity:    $${result.config.portfolio.initialEquity}`)
   console.log(`  Cash balance:      $${result.portfolio.cash.toFixed(2)}`)
   console.log(`  Position value:    $${result.portfolio.openNotional.toFixed(2)}`)
   console.log(`  Total equity:      $${result.portfolio.equity.toFixed(2)}`)
-  console.log(`  Locked arb profit: $${result.portfolio.lockedArbProfit.toFixed(4)} (realized at settlement)`)
+  console.log(`  Locked arb profit: $${result.portfolio.lockedArbProfit.toFixed(4)} (at settlement)`)
+  console.log(`  Slippage cost:     $${result.portfolio.totalSlippageCost.toFixed(4)}`)
+  console.log(`  Net after slip:    $${(result.portfolio.lockedArbProfit - result.portfolio.totalSlippageCost).toFixed(4)}`)
   console.log(`  Max drawdown:      ${result.portfolio.drawdownPct.toFixed(2)}%`)
 
   // Monte Carlo
@@ -63,6 +72,8 @@ async function main(): Promise<void> {
   console.log(`  Mean PnL:        $${result.monteCarlo.mean.toFixed(4)}`)
   console.log(`  P05 (worst 5%):  $${result.monteCarlo.p05.toFixed(4)}`)
 
+  console.log(`\n  Session saved to: ${getSessionPath()}`)
+  console.log('  Run \x1b[36mpnpm bot:scan\x1b[0m to check positions later.')
   console.log('\n=== Paper trading session complete ===')
 }
 

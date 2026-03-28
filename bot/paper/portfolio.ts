@@ -26,6 +26,7 @@ export class PaperPortfolio {
   positions: Map<string, PaperPosition> = new Map()
   orders: PaperOrder[] = []
   peakEquity: number
+  totalSlippageCost = 0
 
   constructor(initialEquity = 10_000) {
     this.initialEquity = initialEquity
@@ -59,7 +60,11 @@ export class PaperPortfolio {
   }
 
   /**
-   * Execute a paper trade: deduct cash, update position, record order.
+   * Execute a paper trade with realistic slippage and partial fill simulation.
+   *
+   * @param slippageBps  - Extra cost in basis points applied to execution price (default 50)
+   * @param fillBaseRate - Base probability of getting filled (default 0.5)
+   * @param fillSizeDecay - How much fill rate drops per unit of size (default 0.001)
    */
   executeTrade(
     marketId: string,
@@ -67,10 +72,23 @@ export class PaperPortfolio {
     price: number,
     size: number,
     ts: number,
+    slippageBps = 50,
+    fillBaseRate = 0.5,
+    fillSizeDecay = 0.001,
   ): PaperOrder {
-    const cost = price * size
+    // Apply slippage: buying costs more
+    const slippageMultiplier = 1 + slippageBps / 10_000
+    const execPrice = Math.min(0.99, price * slippageMultiplier)
+    const slippageCost = (execPrice - price) * size
+    this.totalSlippageCost += Math.max(0, slippageCost)
+
+    // Partial fill: larger orders fill less reliably
+    const fillRate = Math.max(0.1, fillBaseRate - size * fillSizeDecay)
+    const filledSize = Math.round(size * fillRate * 100) / 100
+
+    const cost = execPrice * filledSize
     if (cost > this.cashBalance) {
-      const affordable = Math.floor((this.cashBalance / price) * 100) / 100
+      const affordable = Math.floor((this.cashBalance / execPrice) * 100) / 100
       if (affordable <= 0) {
         const order: PaperOrder = {
           id: `paper-${this.orders.length + 1}`,
@@ -78,7 +96,7 @@ export class PaperPortfolio {
           marketId,
           side,
           action: 'BUY',
-          price,
+          price: execPrice,
           size,
           status: 'REJECTED',
           filledSize: 0,
@@ -87,40 +105,52 @@ export class PaperPortfolio {
         this.orders.push(order)
         return order
       }
-      size = affordable
+      return this.recordFill(marketId, side, execPrice, affordable, size, ts)
     }
 
-    const actualCost = price * size
+    return this.recordFill(marketId, side, execPrice, filledSize, size, ts)
+  }
+
+  private recordFill(
+    marketId: string,
+    side: 'YES' | 'NO',
+    execPrice: number,
+    filledSize: number,
+    requestedSize: number,
+    ts: number,
+  ): PaperOrder {
+    const actualCost = execPrice * filledSize
     this.cashBalance -= actualCost
 
     const key = `${marketId}:${side}`
     const existing = this.positions.get(key)
     if (existing) {
-      const totalSize = existing.size + size
-      existing.avgEntry = (existing.avgEntry * existing.size + price * size) / totalSize
+      const totalSize = existing.size + filledSize
+      existing.avgEntry = (existing.avgEntry * existing.size + execPrice * filledSize) / totalSize
       existing.size = totalSize
-      existing.currentPrice = price
+      existing.currentPrice = execPrice
     } else {
       this.positions.set(key, {
         marketId,
         side,
-        size,
-        avgEntry: price,
-        currentPrice: price,
+        size: filledSize,
+        avgEntry: execPrice,
+        currentPrice: execPrice,
         unrealizedPnl: 0,
       })
     }
 
+    const isPartial = filledSize < requestedSize * 0.99
     const order: PaperOrder = {
       id: `paper-${this.orders.length + 1}`,
       ts,
       marketId,
       side,
       action: 'BUY',
-      price,
-      size,
-      status: 'FILLED',
-      filledSize: size,
+      price: execPrice,
+      size: requestedSize,
+      status: isPartial ? 'PARTIAL' : 'FILLED',
+      filledSize,
       pnl: 0,
     }
     this.orders.push(order)
@@ -179,9 +209,11 @@ export class PaperPortfolio {
     openNotional: number
     totalPnl: number
     lockedArbProfit: number
+    totalSlippageCost: number
     drawdownPct: number
     orderCount: number
     fillCount: number
+    partialCount: number
   } {
     return {
       equity: this.equity,
@@ -190,9 +222,11 @@ export class PaperPortfolio {
       openNotional: this.openNotional,
       totalPnl: this.totalPnl,
       lockedArbProfit: this.lockedArbProfit,
+      totalSlippageCost: this.totalSlippageCost,
       drawdownPct: this.drawdownPct,
       orderCount: this.orders.length,
       fillCount: this.orders.filter((o) => o.status === 'FILLED').length,
+      partialCount: this.orders.filter((o) => o.status === 'PARTIAL').length,
     }
   }
 }
