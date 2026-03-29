@@ -4,7 +4,8 @@ import { FeatureEngine } from '../features/engine'
 import { generateOpportunity } from '../signal'
 import { preTradeCheck } from '../risk/pre_trade'
 import { shouldTriggerDrawdownStop } from '../risk/realtime'
-import { executeOpportunity } from '../execution/orchestrator'
+import { kellySize } from '../execution/kelly'
+import { stoikovPriceAdjust } from '../execution/stoikov'
 import { collectMetrics, type SimMetrics } from '../metrics/collector'
 import { monteCarloPnl } from '../montecarlo/sim'
 
@@ -39,13 +40,18 @@ export function runEngine(ticks: SyntheticTick[]): EngineResult {
     const pnlPct = (totalPnl / Math.max(1, equity)) * 100
     if (shouldTriggerDrawdownStop(pnlPct, pnlPct)) continue
 
-    const execResult = executeOpportunity(opp, equity, inventory)
-    if (execResult.updates.length === 0) continue
+    const size = kellySize(opp.evBps, opp.confidence, equity)
+    if (size < 0.01) continue
+
+    const adjPrice = stoikovPriceAdjust(0.5, inventory)
+    const fillRatio = Math.min(1, 0.7 + opp.confidence * 0.3)
+    const filledSize = size * fillRatio
+    const pnl = filledSize * (opp.evBps / 10_000)
 
     executed += 1
-    totalPnl += execResult.pnl
-    equity += execResult.pnl
-    inventory += execResult.updates[0].filledSize
+    totalPnl += pnl
+    equity += pnl
+    inventory += filledSize
   }
 
   const metrics = collectMetrics(opportunities, executed, totalPnl)

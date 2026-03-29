@@ -1,80 +1,93 @@
-import { runPaperTrading } from '../paper/trader'
-import { getSessionPath } from '../paper/persistence'
+import { fetchRealTicks } from '../integration/real-data'
+import { FeatureEngine } from '../features/engine'
+import { PaperPortfolio } from '../paper/portfolio'
+import { generateWallet } from '../paper/wallet'
+import { saveSession, getSessionPath } from '../paper/persistence'
+import { loadConfig } from '../config'
+import { monteCarloPnl } from '../montecarlo/sim'
+import { runCycle } from '../core/cycle'
 
 async function main(): Promise<void> {
+  const config = loadConfig()
   console.log('=== Polymarket Arbitrage Bot — Paper Trading ===\n')
 
-  const result = await runPaperTrading()
-
-  // Config
   console.log('--- Config ---')
-  console.log(`  Slippage:       ${result.config.execution.slippageBps} bps`)
-  console.log(`  Fill base rate: ${(result.config.execution.partialFillBaseRate * 100).toFixed(0)}%`)
-  console.log(`  Kelly cap:      ${(result.config.execution.kellyCap * 100).toFixed(0)}%`)
-  console.log(`  Cost bps:       ${result.config.signal.costBps}`)
-  console.log(`  Min EV bps:     ${result.config.signal.minEvBps}`)
+  console.log(`  Slippage:       ${config.execution.slippageBps} bps`)
+  console.log(`  Fill base rate: ${(config.execution.partialFillBaseRate * 100).toFixed(0)}%`)
+  console.log(`  Kelly cap:      ${(config.execution.kellyCap * 100).toFixed(0)}%`)
+  console.log(`  Cost bps:       ${config.signal.costBps}`)
+  console.log(`  Min EV bps:     ${config.signal.minEvBps}`)
 
-  // Wallet info
+  const wallet = generateWallet()
   console.log('\n--- Wallet ---')
-  console.log(`  EOA Address:  ${result.wallet.address}`)
-  console.log(`  Safe Address: ${result.wallet.safeAddress}`)
-  console.log(`  Mnemonic:     ${result.wallet.mnemonic}`)
+  console.log(`  EOA Address:  ${wallet.address}`)
+  console.log(`  Safe Address: ${wallet.safeAddress}`)
+  console.log(`  Mnemonic:     ${wallet.mnemonic}`)
 
-  // Trade log
-  console.log(`\n--- Trade Log (${result.logs.length} events) ---`)
-  for (const log of result.logs) {
-    const tag =
-      log.action === 'TRADE'
-        ? '\x1b[32m TRADE \x1b[0m'
-        : log.action === 'BLOCKED'
-          ? '\x1b[31mBLOCKED\x1b[0m'
-          : log.action === 'STOPPED'
-            ? '\x1b[31mSTOPPED\x1b[0m'
-            : '\x1b[90m  SKIP \x1b[0m'
-    console.log(`  [${tag}] t=${String(log.tick).padStart(3)} ${log.marketId.padEnd(25)} ${log.detail}`)
-  }
+  const ticks = await fetchRealTicks(config.data.tickLimit)
+  if (ticks.length === 0) throw new Error('No market data available')
+
+  const portfolio = new PaperPortfolio(config.portfolio.initialEquity)
+  const featureEngine = new FeatureEngine()
+  const result = runCycle(ticks, portfolio, featureEngine, config)
+
+  // Orders
+  const filled = portfolio.orders.filter((o) => o.status === 'FILLED')
+  const partial = portfolio.orders.filter((o) => o.status === 'PARTIAL')
+  const rejected = portfolio.orders.filter((o) => o.status === 'REJECTED')
+  console.log(`\n--- Cycle Result ---`)
+  console.log(`  Markets scanned: ${ticks.length}`)
+  console.log(`  Trades:          ${result.trades}`)
+  console.log(`  Skips:           ${result.skips}`)
+  console.log(`  Blocks:          ${result.blocks}`)
+  console.log(`  Orders:          ${portfolio.orders.length} (${filled.length} full, ${partial.length} partial, ${rejected.length} rejected)`)
 
   // Positions
-  if (result.positions.length > 0) {
-    console.log(`\n--- Open Positions (${result.positions.length}) ---`)
-    for (const p of result.positions) {
+  if (portfolio.positions.size > 0) {
+    console.log(`\n--- Open Positions (${portfolio.positions.size}) ---`)
+    for (const p of portfolio.positions.values()) {
       console.log(
         `  ${p.marketId.padEnd(25)} ${p.side.padEnd(3)} ` +
-          `size=${p.size.toFixed(2)} entry=${p.avgEntry.toFixed(4)} ` +
-          `mark=${p.currentPrice.toFixed(4)} uPnL=$${p.unrealizedPnl.toFixed(4)}`,
+          `size=${p.size.toFixed(2)} entry=${p.avgEntry.toFixed(4)} mark=${p.currentPrice.toFixed(4)}`,
       )
     }
   }
 
-  // Orders
-  const filled = result.orders.filter((o) => o.status === 'FILLED')
-  const partial = result.orders.filter((o) => o.status === 'PARTIAL')
-  const rejected = result.orders.filter((o) => o.status === 'REJECTED')
-  console.log(`\n--- Order Summary ---`)
-  console.log(`  Total orders:  ${result.orders.length}`)
-  console.log(`  Full fills:    ${filled.length}`)
-  console.log(`  Partial fills: ${partial.length}`)
-  console.log(`  Rejected:      ${rejected.length}`)
-
   // Portfolio
+  const snap = portfolio.snapshot()
+  const mc = monteCarloPnl(snap.lockedArbProfit)
   console.log(`\n--- Portfolio ---`)
-  console.log(`  Initial equity:    $${result.config.portfolio.initialEquity}`)
-  console.log(`  Cash balance:      $${result.portfolio.cash.toFixed(2)}`)
-  console.log(`  Position value:    $${result.portfolio.openNotional.toFixed(2)}`)
-  console.log(`  Total equity:      $${result.portfolio.equity.toFixed(2)}`)
-  console.log(`  Locked arb profit: $${result.portfolio.lockedArbProfit.toFixed(4)} (at settlement)`)
-  console.log(`  Slippage cost:     $${result.portfolio.totalSlippageCost.toFixed(4)}`)
-  console.log(`  Net after slip:    $${(result.portfolio.lockedArbProfit - result.portfolio.totalSlippageCost).toFixed(4)}`)
-  console.log(`  Max drawdown:      ${result.portfolio.drawdownPct.toFixed(2)}%`)
+  console.log(`  Equity:            $${snap.equity.toFixed(2)}`)
+  console.log(`  Cash:              $${snap.cash.toFixed(2)}`)
+  console.log(`  Locked arb profit: $${snap.lockedArbProfit.toFixed(4)}`)
+  console.log(`  Slippage cost:     $${snap.totalSlippageCost.toFixed(4)}`)
+  console.log(`  Net after slip:    $${(snap.lockedArbProfit - snap.totalSlippageCost).toFixed(4)}`)
+  console.log(`  MC P05:            $${mc.p05.toFixed(4)}`)
 
-  // Monte Carlo
-  console.log(`\n--- Monte Carlo Stress Test ---`)
-  console.log(`  Mean PnL:        $${result.monteCarlo.mean.toFixed(4)}`)
-  console.log(`  P05 (worst 5%):  $${result.monteCarlo.p05.toFixed(4)}`)
+  if (result.alerts.length > 0) {
+    console.log('\n--- Alerts ---')
+    for (const a of result.alerts) console.log(`  ${a}`)
+  }
+
+  // Save session
+  const filledOrders = portfolio.orders.filter((o) => o.status !== 'REJECTED')
+  saveSession({
+    wallet: { address: wallet.address, safeAddress: wallet.safeAddress, privateKey: wallet.privateKey },
+    updatedAt: new Date().toISOString(),
+    portfolio: { initialEquity: config.portfolio.initialEquity, cash: portfolio.cashBalance, equity: portfolio.equity, peakEquity: portfolio.peakEquity },
+    positions: Array.from(portfolio.positions.values()),
+    orders: portfolio.orders,
+    stats: {
+      totalTrades: portfolio.orders.length,
+      fillRate: filledOrders.length / Math.max(1, portfolio.orders.length),
+      totalArbProfit: snap.lockedArbProfit,
+      totalSlippageCost: snap.totalSlippageCost,
+      sessionsRun: 1,
+    },
+  })
 
   console.log(`\n  Session saved to: ${getSessionPath()}`)
-  console.log('  Run \x1b[36mpnpm bot:scan\x1b[0m to check positions later.')
-  console.log('\n=== Paper trading session complete ===')
+  console.log('=== Done ===')
 }
 
 void main()
