@@ -5,20 +5,27 @@ import { addRpcUrlOverrideToChain } from "@privy-io/chains"
 import { useTheme } from "next-themes"
 import { polygon } from "viem/chains"
 
-const POLYGON_RPC_URL = process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon.drpc.org"
+const POLYGON_RPC_URL =
+  process.env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon.drpc.org"
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || ""
 
 function PrivyProviderInner({ children }: { children: React.ReactNode }) {
   const { resolvedTheme } = useTheme()
 
+  if (!PRIVY_APP_ID || PRIVY_APP_ID === "your_privy_app_id") {
+    return <>{children}</>
+  }
+
   return (
     <BasePrivyProvider
-      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ""}
+      appId={PRIVY_APP_ID}
       config={{
         appearance: {
           theme: resolvedTheme === "dark" ? "dark" : "light",
           accentColor: "#2563eb",
           landingHeader: "Sign in to trade",
-          loginMessage: "Connect your wallet or sign in with email to get started.",
+          loginMessage:
+            "Connect your wallet or sign in with email to get started.",
         },
         loginMethods: ["email", "wallet"],
         defaultChain: polygon,

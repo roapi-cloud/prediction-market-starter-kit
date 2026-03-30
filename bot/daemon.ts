@@ -15,14 +15,14 @@
  *   nohup pnpm bot:daemon &  # run in background
  */
 
-import { fetchRealTicks } from './integration/real-data'
-import { FeatureEngine } from './features/engine'
-import { PaperPortfolio } from './paper/portfolio'
-import { generateWallet } from './paper/wallet'
-import { saveSession, loadSession } from './paper/persistence'
-import { loadConfig, resetConfigCache, type BotConfig } from './config'
-import { autotune } from './config/autotune'
-import { runCycle } from './core/cycle'
+import { createDataSource, type IDataSource } from "./integration"
+import { FeatureEngine } from "./features/engine"
+import { PaperPortfolio } from "./paper/portfolio"
+import { generateWallet } from "./paper/wallet"
+import { saveSession, loadSession } from "./paper/persistence"
+import { loadConfig, resetConfigCache, type BotConfig } from "./config"
+import { autotune } from "./config/autotune"
+import { runCycle } from "./core/cycle"
 
 const CYCLE_INTERVAL = 5 * 60 * 1000
 const TUNE_EVERY_N_CYCLES = 12
@@ -30,7 +30,7 @@ const TUNE_EVERY_N_CYCLES = 12
 let running = true
 
 function ts(): string {
-  return new Date().toISOString().replace('T', ' ').slice(0, 19)
+  return new Date().toISOString().replace("T", " ").slice(0, 19)
 }
 
 function sleep(ms: number): Promise<void> {
@@ -41,9 +41,9 @@ function persistState(
   portfolio: PaperPortfolio,
   wallet: { address: string; safeAddress: string; privateKey: string },
   config: BotConfig,
-  cycleCount: number,
+  cycleCount: number
 ): void {
-  const filledOrders = portfolio.orders.filter((o) => o.status !== 'REJECTED')
+  const filledOrders = portfolio.orders.filter((o) => o.status !== "REJECTED")
   saveSession({
     wallet,
     updatedAt: new Date().toISOString(),
@@ -68,24 +68,35 @@ function persistState(
 async function main(): Promise<void> {
   console.log(`[${ts()}] Bot Daemon starting`)
   console.log(`  Cycle interval:  ${CYCLE_INTERVAL / 60000}min`)
-  console.log(`  Auto-tune every: ${TUNE_EVERY_N_CYCLES} cycles (~${TUNE_EVERY_N_CYCLES * 5}min)`)
+  console.log(
+    `  Auto-tune every: ${TUNE_EVERY_N_CYCLES} cycles (~${TUNE_EVERY_N_CYCLES * 5}min)`
+  )
   console.log(`  Press Ctrl+C to stop\n`)
 
-  process.on('SIGINT', () => { console.log(`\n[${ts()}] Shutting down...`); running = false })
-  process.on('SIGTERM', () => { console.log(`\n[${ts()}] Shutting down...`); running = false })
+  process.on("SIGINT", () => {
+    console.log(`\n[${ts()}] Shutting down...`)
+    running = false
+  })
+  process.on("SIGTERM", () => {
+    console.log(`\n[${ts()}] Shutting down...`)
+    running = false
+  })
 
   let config = loadConfig()
   const session = loadSession()
-  const wallet = { address: '', safeAddress: '', privateKey: '' }
+  const wallet = { address: "", safeAddress: "", privateKey: "" }
   const portfolio = new PaperPortfolio(config.portfolio.initialEquity)
 
   if (session) {
     Object.assign(wallet, session.wallet)
     portfolio.cashBalance = session.portfolio.cash
     portfolio.peakEquity = session.portfolio.peakEquity
-    for (const pos of session.positions) portfolio.positions.set(`${pos.marketId}:${pos.side}`, { ...pos })
+    for (const pos of session.positions)
+      portfolio.positions.set(`${pos.marketId}:${pos.side}`, { ...pos })
     for (const order of session.orders) portfolio.orders.push(order)
-    console.log(`  Restored: ${wallet.address} (${portfolio.positions.size} positions)`)
+    console.log(
+      `  Restored: ${wallet.address} (${portfolio.positions.size} positions)`
+    )
   } else {
     const w = generateWallet()
     wallet.address = w.address
@@ -94,6 +105,9 @@ async function main(): Promise<void> {
     console.log(`  New wallet: ${wallet.address}`)
   }
 
+  const dataSource = createDataSource(config.data.dataSource)
+  console.log(`  Data source: ${config.data.dataSource.type}`)
+
   const featureEngine = new FeatureEngine()
   let cycleCount = 0
 
@@ -101,16 +115,16 @@ async function main(): Promise<void> {
     cycleCount += 1
     console.log(`\n[${ts()}] ── Cycle #${cycleCount} ──`)
 
-    const ticks = await fetchRealTicks(config.data.tickLimit)
+    const ticks = await dataSource.fetchOnce()
     const result = runCycle(ticks, portfolio, featureEngine, config)
     const snap = portfolio.snapshot()
 
     console.log(
-      `  Market: ${result.trades} trades, ${result.skips} skips, ${result.blocks} blocks`,
+      `  Market: ${result.trades} trades, ${result.skips} skips, ${result.blocks} blocks`
     )
     console.log(
       `  Portfolio: equity=$${snap.equity.toFixed(2)} arb=$${snap.lockedArbProfit.toFixed(4)} ` +
-        `slip=$${snap.totalSlippageCost.toFixed(4)} DD=${snap.drawdownPct.toFixed(2)}%`,
+        `slip=$${snap.totalSlippageCost.toFixed(4)} DD=${snap.drawdownPct.toFixed(2)}%`
     )
     for (const alert of result.alerts) console.log(`  ${alert}`)
 
@@ -121,9 +135,10 @@ async function main(): Promise<void> {
       resetConfigCache()
       const report = autotune()
       if (report.adjustments.length === 0) {
-        console.log('  No adjustments needed')
+        console.log("  No adjustments needed")
       } else {
-        for (const adj of report.adjustments) console.log(`  ${adj.param}: ${adj.old} → ${adj.new}`)
+        for (const adj of report.adjustments)
+          console.log(`  ${adj.param}: ${adj.old} → ${adj.new}`)
       }
       resetConfigCache()
       config = loadConfig()
@@ -135,6 +150,7 @@ async function main(): Promise<void> {
     }
   }
 
+  dataSource.stop()
   console.log(`[${ts()}] Daemon stopped after ${cycleCount} cycles`)
 }
 

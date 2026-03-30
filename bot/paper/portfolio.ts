@@ -1,23 +1,30 @@
 export type PaperPosition = {
   marketId: string
-  side: 'YES' | 'NO'
+  side: "YES" | "NO"
   size: number
   avgEntry: number
   currentPrice: number
   unrealizedPnl: number
 }
 
+export type StrategyType =
+  | "static_arb"
+  | "stat_arb"
+  | "microstructure"
+  | "term_structure"
+
 export type PaperOrder = {
   id: string
   ts: number
   marketId: string
-  side: 'YES' | 'NO'
-  action: 'BUY' | 'SELL'
+  side: "YES" | "NO"
+  action: "BUY" | "SELL"
   price: number
   size: number
-  status: 'FILLED' | 'PARTIAL' | 'REJECTED'
+  status: "FILLED" | "PARTIAL" | "REJECTED"
   filledSize: number
   pnl: number
+  strategy: StrategyType
 }
 
 export class PaperPortfolio {
@@ -68,13 +75,14 @@ export class PaperPortfolio {
    */
   executeTrade(
     marketId: string,
-    side: 'YES' | 'NO',
+    side: "YES" | "NO",
     price: number,
     size: number,
     ts: number,
     slippageBps = 50,
     fillBaseRate = 0.5,
     fillSizeDecay = 0.001,
+    strategy: StrategyType = "static_arb"
   ): PaperOrder {
     // Apply slippage: buying costs more
     const slippageMultiplier = 1 + slippageBps / 10_000
@@ -95,29 +103,47 @@ export class PaperPortfolio {
           ts,
           marketId,
           side,
-          action: 'BUY',
+          action: "BUY",
           price: execPrice,
           size,
-          status: 'REJECTED',
+          status: "REJECTED",
           filledSize: 0,
           pnl: 0,
+          strategy,
         }
         this.orders.push(order)
         return order
       }
-      return this.recordFill(marketId, side, execPrice, affordable, size, ts)
+      return this.recordFill(
+        marketId,
+        side,
+        execPrice,
+        affordable,
+        size,
+        ts,
+        strategy
+      )
     }
 
-    return this.recordFill(marketId, side, execPrice, filledSize, size, ts)
+    return this.recordFill(
+      marketId,
+      side,
+      execPrice,
+      filledSize,
+      size,
+      ts,
+      strategy
+    )
   }
 
   private recordFill(
     marketId: string,
-    side: 'YES' | 'NO',
+    side: "YES" | "NO",
     execPrice: number,
     filledSize: number,
     requestedSize: number,
     ts: number,
+    strategy: StrategyType
   ): PaperOrder {
     const actualCost = execPrice * filledSize
     this.cashBalance -= actualCost
@@ -126,7 +152,8 @@ export class PaperPortfolio {
     const existing = this.positions.get(key)
     if (existing) {
       const totalSize = existing.size + filledSize
-      existing.avgEntry = (existing.avgEntry * existing.size + execPrice * filledSize) / totalSize
+      existing.avgEntry =
+        (existing.avgEntry * existing.size + execPrice * filledSize) / totalSize
       existing.size = totalSize
       existing.currentPrice = execPrice
     } else {
@@ -146,12 +173,13 @@ export class PaperPortfolio {
       ts,
       marketId,
       side,
-      action: 'BUY',
+      action: "BUY",
       price: execPrice,
       size: requestedSize,
-      status: isPartial ? 'PARTIAL' : 'FILLED',
+      status: isPartial ? "PARTIAL" : "FILLED",
       filledSize,
       pnl: 0,
+      strategy,
     }
     this.orders.push(order)
 
@@ -164,17 +192,34 @@ export class PaperPortfolio {
 
   /**
    * Update mark prices for all positions and compute unrealized P&L.
+   * For hedged YES+NO positions, the hedged portion is worth $1 at settlement.
    */
   markToMarket(marketId: string, yesPrice: number, noPrice: number): void {
     const yesPos = this.positions.get(`${marketId}:YES`)
-    if (yesPos) {
-      yesPos.currentPrice = yesPrice
-      yesPos.unrealizedPnl = (yesPrice - yesPos.avgEntry) * yesPos.size
-    }
     const noPos = this.positions.get(`${marketId}:NO`)
-    if (noPos) {
-      noPos.currentPrice = noPrice
-      noPos.unrealizedPnl = (noPrice - noPos.avgEntry) * noPos.size
+
+    if (yesPos && noPos) {
+      const hedgedSize = Math.min(yesPos.size, noPos.size)
+      const unhedgedYes = yesPos.size - hedgedSize
+      const unhedgedNo = noPos.size - hedgedSize
+
+      yesPos.currentPrice =
+        (hedgedSize * 1.0 + unhedgedYes * yesPrice) / yesPos.size
+      yesPos.unrealizedPnl =
+        (yesPos.currentPrice - yesPos.avgEntry) * yesPos.size
+
+      noPos.currentPrice =
+        (hedgedSize * 1.0 + unhedgedNo * noPrice) / noPos.size
+      noPos.unrealizedPnl = (noPos.currentPrice - noPos.avgEntry) * noPos.size
+    } else {
+      if (yesPos) {
+        yesPos.currentPrice = yesPrice
+        yesPos.unrealizedPnl = (yesPrice - yesPos.avgEntry) * yesPos.size
+      }
+      if (noPos) {
+        noPos.currentPrice = noPrice
+        noPos.unrealizedPnl = (noPrice - noPos.avgEntry) * noPos.size
+      }
     }
   }
 
@@ -225,8 +270,8 @@ export class PaperPortfolio {
       totalSlippageCost: this.totalSlippageCost,
       drawdownPct: this.drawdownPct,
       orderCount: this.orders.length,
-      fillCount: this.orders.filter((o) => o.status === 'FILLED').length,
-      partialCount: this.orders.filter((o) => o.status === 'PARTIAL').length,
+      fillCount: this.orders.filter((o) => o.status === "FILLED").length,
+      partialCount: this.orders.filter((o) => o.status === "PARTIAL").length,
     }
   }
 }

@@ -4,9 +4,9 @@
     "maxOpenNotional": 2000
   },
   "execution": {
-    "kellyCap": 0.02,
+    "kellyCap": 0.015,
     "stoikovRiskAversion": 0.002,
-    "slippageBps": 50,
+    "slippageBps": 150,
     "partialFillBaseRate": 0.5,
     "partialFillSizeDecay": 0.001
   },
@@ -22,6 +22,19 @@
   },
   "data": {
     "tickLimit": 50,
-    "spreadOverride": 0.01
+    "spreadOverride": 0.01,
+    "dataSource": {
+      "type": "rest",
+      "rest": {
+        "pollIntervalMs": 1000,
+        "tickLimit": 50
+      },
+      "websocket": {
+        "url": "wss://ws-subscriptions-clob.polymarket.com/ws",
+        "reconnectIntervalMs": 5000,
+        "pingIntervalMs": 30000,
+        "subscriptions": []
+      }
+    }
   }
 }

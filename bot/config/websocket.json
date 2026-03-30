@@ -1,0 +1,40 @@
+{
+  "portfolio": {
+    "initialEquity": 10000,
+    "maxOpenNotional": 2000
+  },
+  "execution": {
+    "kellyCap": 0.015,
+    "stoikovRiskAversion": 0.002,
+    "slippageBps": 150,
+    "partialFillBaseRate": 0.5,
+    "partialFillSizeDecay": 0.001
+  },
+  "signal": {
+    "costBps": 20,
+    "minEvBps": 5,
+    "confidenceThreshold": 0.1
+  },
+  "risk": {
+    "intradayStopPct": -2,
+    "maxDrawdownPct": -4,
+    "maxPositionPct": 25
+  },
+  "data": {
+    "tickLimit": 50,
+    "spreadOverride": 0.01,
+    "dataSource": {
+      "type": "websocket",
+      "rest": {
+        "pollIntervalMs": 1000,
+        "tickLimit": 50
+      },
+      "websocket": {
+        "url": "wss://ws-subscriptions-clob.polymarket.com/ws",
+        "reconnectIntervalMs": 5000,
+        "pingIntervalMs": 30000,
+        "subscriptions": []
+      }
+    }
+  }
+}

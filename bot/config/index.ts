@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
+import type { DataSourceConfig } from "../integration/types"
 
 export type BotConfig = {
   portfolio: {
@@ -27,11 +28,12 @@ export type BotConfig = {
   data: {
     tickLimit: number
     spreadOverride: number
+    dataSource: DataSourceConfig
   }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DEFAULT_PATH = resolve(__dirname, 'default.json')
+const DEFAULT_PATH = resolve(__dirname, "default.json")
 
 let cached: BotConfig | null = null
 
@@ -39,7 +41,7 @@ export function loadConfig(path?: string): BotConfig {
   if (cached && !path) return cached
 
   const filePath = path ?? process.env.BOT_CONFIG_PATH ?? DEFAULT_PATH
-  const raw = readFileSync(filePath, 'utf8')
+  const raw = readFileSync(filePath, "utf8")
   const config = JSON.parse(raw) as BotConfig
   if (!path) cached = config
   return config
