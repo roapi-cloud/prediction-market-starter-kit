@@ -5,10 +5,12 @@
     "markets": [
       {
         "id": "mkt-btc-70k",
+        "question": "Will BTC be above $70k by end of April 2026?",
         "outcomePrices": "[\"0.44\",\"0.53\"]",
         "outcome_prices": "[\"0.44\",\"0.53\"]",
         "volume_24hr": 182340,
-        "volume": 984230
+        "volume": 984230,
+        "end_date": "2026-04-30T23:59:59Z"
       }
     ]
   },
@@ -18,10 +20,12 @@
     "markets": [
       {
         "id": "mkt-fed-cut",
+        "question": "Will the Fed cut rates in the next FOMC meeting?",
         "outcomePrices": "[\"0.39\",\"0.58\"]",
         "outcome_prices": "[\"0.39\",\"0.58\"]",
         "volume_24hr": 91231,
-        "volume": 581220
+        "volume": 581220,
+        "end_date": "2026-05-15T23:59:59Z"
       }
     ]
   },
@@ -31,10 +35,12 @@
     "markets": [
       {
         "id": "mkt-eth-5k",
+        "question": "Will ETH be above $5k by end of Q2 2026?",
         "outcomePrices": "[\"0.28\",\"0.69\"]",
         "outcome_prices": "[\"0.28\",\"0.69\"]",
         "volume_24hr": 67500,
-        "volume": 412500
+        "volume": 412500,
+        "end_date": "2026-06-30T23:59:59Z"
       }
     ]
   },
@@ -44,17 +50,21 @@
     "markets": [
       {
         "id": "mkt-senate-dem",
+        "question": "Will Democrats control Senate after 2026 midterms?",
         "outcomePrices": "[\"0.42\",\"0.55\"]",
         "outcome_prices": "[\"0.42\",\"0.55\"]",
         "volume_24hr": 320000,
-        "volume": 2450000
+        "volume": 2450000,
+        "end_date": "2026-11-03T23:59:59Z"
       },
       {
         "id": "mkt-house-gop",
+        "question": "Will Republicans control House after 2026 midterms?",
         "outcomePrices": "[\"0.61\",\"0.36\"]",
         "outcome_prices": "[\"0.61\",\"0.36\"]",
         "volume_24hr": 285000,
-        "volume": 2100000
+        "volume": 2100000,
+        "end_date": "2026-11-03T23:59:59Z"
       }
     ]
   },
@@ -64,10 +74,12 @@
     "markets": [
       {
         "id": "mkt-ai-reg-bill",
+        "question": "Will a major AI regulation bill pass by end of 2026?",
         "outcomePrices": "[\"0.33\",\"0.64\"]",
         "outcome_prices": "[\"0.33\",\"0.64\"]",
         "volume_24hr": 45800,
-        "volume": 198000
+        "volume": 198000,
+        "end_date": "2026-12-31T23:59:59Z"
       }
     ]
   },
@@ -77,24 +89,30 @@
     "markets": [
       {
         "id": "mkt-sp500-above-6000",
+        "question": "Will S&P 500 be above 6000 by end of June 2026?",
         "outcomePrices": "[\"0.55\",\"0.42\"]",
         "outcome_prices": "[\"0.55\",\"0.42\"]",
         "volume_24hr": 156000,
-        "volume": 890000
+        "volume": 890000,
+        "end_date": "2026-06-30T23:59:59Z"
       },
       {
         "id": "mkt-sp500-above-6500",
+        "question": "Will S&P 500 be above 6500 by end of September 2026?",
         "outcomePrices": "[\"0.31\",\"0.66\"]",
         "outcome_prices": "[\"0.31\",\"0.66\"]",
         "volume_24hr": 98000,
-        "volume": 670000
+        "volume": 670000,
+        "end_date": "2026-09-30T23:59:59Z"
       },
       {
         "id": "mkt-sp500-above-7000",
+        "question": "Will S&P 500 be above 7000 by end of December 2026?",
         "outcomePrices": "[\"0.12\",\"0.85\"]",
         "outcome_prices": "[\"0.12\",\"0.85\"]",
         "volume_24hr": 42000,
-        "volume": 340000
+        "volume": 340000,
+        "end_date": "2026-12-31T23:59:59Z"
       }
     ]
   },
@@ -104,38 +122,48 @@
     "markets": [
       {
         "id": "mkt-wc-brazil",
+        "question": "Will Brazil win the 2026 FIFA World Cup?",
         "outcomePrices": "[\"0.18\",\"0.79\"]",
         "outcome_prices": "[\"0.18\",\"0.79\"]",
         "volume_24hr": 210000,
-        "volume": 1560000
+        "volume": 1560000,
+        "end_date": "2026-07-19T23:59:59Z"
       },
       {
         "id": "mkt-wc-france",
+        "question": "Will France win the 2026 FIFA World Cup?",
         "outcomePrices": "[\"0.15\",\"0.82\"]",
         "outcome_prices": "[\"0.15\",\"0.82\"]",
         "volume_24hr": 195000,
-        "volume": 1420000
+        "volume": 1420000,
+        "end_date": "2026-07-19T23:59:59Z"
       },
       {
         "id": "mkt-wc-argentina",
+        "question": "Will Argentina win the 2026 FIFA World Cup?",
         "outcomePrices": "[\"0.14\",\"0.83\"]",
         "outcome_prices": "[\"0.14\",\"0.83\"]",
         "volume_24hr": 188000,
-        "volume": 1380000
+        "volume": 1380000,
+        "end_date": "2026-07-19T23:59:59Z"
       },
       {
         "id": "mkt-wc-england",
+        "question": "Will England win the 2026 FIFA World Cup?",
         "outcomePrices": "[\"0.10\",\"0.87\"]",
         "outcome_prices": "[\"0.10\",\"0.87\"]",
         "volume_24hr": 145000,
-        "volume": 980000
+        "volume": 980000,
+        "end_date": "2026-07-19T23:59:59Z"
       },
       {
         "id": "mkt-wc-germany",
+        "question": "Will Germany win the 2026 FIFA World Cup?",
         "outcomePrices": "[\"0.09\",\"0.88\"]",
         "outcome_prices": "[\"0.09\",\"0.88\"]",
         "volume_24hr": 132000,
-        "volume": 860000
+        "volume": 860000,
+        "end_date": "2026-07-19T23:59:59Z"
       }
     ]
   },
@@ -145,10 +173,12 @@
     "markets": [
       {
         "id": "mkt-climate-record",
+        "question": "Will a global temperature record be broken in 2026?",
         "outcomePrices": "[\"0.62\",\"0.35\"]",
         "outcome_prices": "[\"0.62\",\"0.35\"]",
         "volume_24hr": 38000,
-        "volume": 225000
+        "volume": 225000,
+        "end_date": "2026-12-31T23:59:59Z"
       }
     ]
   },
@@ -158,10 +188,12 @@
     "markets": [
       {
         "id": "mkt-sol-500",
+        "question": "Will SOL be above $500 by end of 2026?",
         "outcomePrices": "[\"0.22\",\"0.75\"]",
         "outcome_prices": "[\"0.22\",\"0.75\"]",
         "volume_24hr": 54000,
-        "volume": 310000
+        "volume": 310000,
+        "end_date": "2026-12-31T23:59:59Z"
       }
     ]
   },
@@ -171,17 +203,21 @@
     "markets": [
       {
         "id": "mkt-meta-layoffs",
+        "question": "Will Meta announce major layoffs in Q2 2026?",
         "outcomePrices": "[\"0.15\",\"0.82\"]",
         "outcome_prices": "[\"0.15\",\"0.82\"]",
         "volume_24hr": 28000,
-        "volume": 165000
+        "volume": 165000,
+        "end_date": "2026-06-30T23:59:59Z"
       },
       {
         "id": "mkt-google-layoffs",
+        "question": "Will Google announce major layoffs in Q2 2026?",
         "outcomePrices": "[\"0.11\",\"0.86\"]",
         "outcome_prices": "[\"0.11\",\"0.86\"]",
         "volume_24hr": 22000,
-        "volume": 142000
+        "volume": 142000,
+        "end_date": "2026-06-30T23:59:59Z"
       }
     ]
   }

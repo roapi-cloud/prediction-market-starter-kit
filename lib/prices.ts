@@ -1,21 +1,69 @@
 import type { Market } from "@/lib/gamma"
 
+export type ParsePriceResult = {
+  yesPrice: number
+  noPrice: number
+  success: boolean
+  error?: string
+}
+
 export function parseYesPrice(market: Market): number {
   try {
     const raw = market.outcomePrices || market.outcome_prices
+    if (!raw) {
+      console.warn(`[prices] Missing outcomePrices for market`)
+      return 0
+    }
     const prices = JSON.parse(raw) as string[]
+    if (!prices[0]) {
+      console.warn(`[prices] Empty prices array for market`)
+      return 0
+    }
     return Number(prices[0]) || 0
-  } catch {
+  } catch (error) {
+    console.error(
+      `[prices] Failed to parse yes price:`,
+      error instanceof Error ? error.message : error
+    )
     return 0
   }
 }
 
 export function parsePrices(market: Market): [number, number] {
+  const result = parsePricesWithDetails(market)
+  return [result.yesPrice, result.noPrice]
+}
+
+export function parsePricesWithDetails(market: Market): ParsePriceResult {
   try {
-    const prices = JSON.parse(market.outcomePrices || market.outcome_prices) as string[]
-    return [Number(prices[0]) || 0, Number(prices[1]) || 0]
-  } catch {
-    return [0, 0]
+    const raw = market.outcomePrices || market.outcome_prices
+    if (!raw) {
+      return {
+        yesPrice: 0,
+        noPrice: 0,
+        success: false,
+        error: "Missing outcomePrices field",
+      }
+    }
+    const prices = JSON.parse(raw) as string[]
+    if (!prices || prices.length < 2) {
+      return {
+        yesPrice: 0,
+        noPrice: 0,
+        success: false,
+        error: `Invalid prices array: expected 2 elements, got ${prices?.length ?? 0}`,
+      }
+    }
+    const yesPrice = Number(prices[0]) || 0
+    const noPrice = Number(prices[1]) || 0
+    return { yesPrice, noPrice, success: true }
+  } catch (error) {
+    return {
+      yesPrice: 0,
+      noPrice: 0,
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown parse error",
+    }
   }
 }
 

@@ -17,6 +17,66 @@ import {
   type BookState,
 } from "../ingest/orderbook"
 import { createDataSource } from "../integration"
+import { StrategyRouter, createDefaultRouter } from "../signal/router"
+import type {
+  RoutedOpportunity,
+  StrategyType,
+  StatArbConfig,
+  TermStructureConfig,
+  MarketInfo,
+} from "../contracts/types"
+import { computeBookMetrics } from "../signal/book-metrics"
+import { computeTradeMetrics } from "../signal/trade-metrics"
+import {
+  generateMicrostructureOpportunity,
+  detectMicrostructureOpportunity,
+} from "../signal/microstructure"
+import { DEFAULT_MICROSTRUCTURE_CONFIG } from "../config/microstructure-config"
+import { SpreadHistory } from "../data/spread-history"
+import { computeStatArb, generateStatArbOpportunity } from "../signal/stat-arb"
+import {
+  computeTermSpread,
+  generateTermOpportunity,
+  identifyTermMarkets,
+} from "../signal/term-structure"
+
+const DEFAULT_PAIR_CONFIGS: StatArbConfig[] = [
+  {
+    pairId: "trump-vs-harris",
+    marketA: "mkt-trump-win",
+    marketB: "mkt-harris-win",
+    hedgeRatio: 1,
+    lookbackWindow: 50,
+    entryZThreshold: 2,
+    exitZThreshold: 0.5,
+    maxHoldingMs: 3600000,
+    stopLossZThreshold: 4,
+  },
+  {
+    pairId: "fed-vs-inflation",
+    marketA: "mkt-fed-cut",
+    marketB: "mkt-inflation-high",
+    hedgeRatio: 0.8,
+    lookbackWindow: 50,
+    entryZThreshold: 2,
+    exitZThreshold: 0.5,
+    maxHoldingMs: 3600000,
+    stopLossZThreshold: 4,
+  },
+]
+
+const DEFAULT_TERM_CONFIGS: TermStructureConfig[] = [
+  {
+    eventId: "presidential-election",
+    markets: [
+      { marketId: "mkt-trump-dec", expiryTs: 1735689600 },
+      { marketId: "mkt-trump-jan", expiryTs: 1738368000 },
+    ],
+    termSpreadThreshold: 0.05,
+    maxHoldingBeforeExpiryMs: 60000,
+    timeValueDecayRate: 0.001,
+  },
+]
 
 export type RealtimeResult = {
   trades: number
@@ -35,8 +95,16 @@ export class RealtimeEngine {
   private config: BotConfig
   private portfolio: PaperPortfolio
   private featureEngine: FeatureEngine
+  private router: StrategyRouter
   private lastSpreads: Map<string, number> = new Map()
   private bookStates: Map<string, BookState> = new Map()
+  private marketEvents: Map<string, Array<{ ts: number; event: any }>> =
+    new Map()
+  private spreadHistory: SpreadHistory
+  private marketPrices: Map<string, number>
+  private pairConfigs: StatArbConfig[]
+  private termConfigs: TermStructureConfig[]
+  private marketInfos: Map<string, MarketInfo>
   private running = false
   private scanInterval = 1000
   private lastScanTime = 0
@@ -45,6 +113,12 @@ export class RealtimeEngine {
     this.config = config
     this.portfolio = portfolio
     this.featureEngine = new FeatureEngine()
+    this.router = createDefaultRouter()
+    this.spreadHistory = new SpreadHistory()
+    this.marketPrices = new Map()
+    this.pairConfigs = DEFAULT_PAIR_CONFIGS
+    this.termConfigs = DEFAULT_TERM_CONFIGS
+    this.marketInfos = new Map()
   }
 
   setScanInterval(ms: number): void {
@@ -112,32 +186,91 @@ export class RealtimeEngine {
     }
     this.bookStates.set(tick.marketId, book)
 
+    const marketEventsList = this.marketEvents.get(tick.marketId) ?? []
+    marketEventsList.push({ ts: tick.ts, event: events })
+    if (marketEventsList.length > 100) {
+      marketEventsList.shift()
+    }
+    this.marketEvents.set(tick.marketId, marketEventsList)
+
     const feature = this.featureEngine.build(
       tick.marketId,
       tick.ts,
       book,
       events
     )
-    const opp = generateOpportunity(
-      feature,
-      book,
-      tick.ts,
-      this.config.signal.costBps,
-      this.config.signal.minEvBps
-    )
 
-    if (!opp || opp.confidence < this.config.signal.confidenceThreshold) {
+    const routedOpps = this.router.route(feature, book, tick.ts)
+
+    const microOpp = this.generateMicrostructureOpportunity(
+      tick.marketId,
+      book,
+      events,
+      tick.ts
+    )
+    if (microOpp) {
+      routedOpps.push(microOpp)
+    }
+
+    this.marketPrices.set(tick.marketId, book.yesAsk)
+    const statArbOpps = this.generateStatArbOpportunities(tick.ts)
+    for (const opp of statArbOpps) {
+      routedOpps.push(opp)
+    }
+
+    const termOpps = this.generateTermStructureOpportunities(tick.ts)
+    for (const opp of termOpps) {
+      routedOpps.push(opp)
+    }
+
+    if (routedOpps.length === 0) {
+      const staticOpp = generateOpportunity(
+        feature,
+        book,
+        tick.ts,
+        this.config.signal.costBps,
+        this.config.signal.minEvBps
+      )
+      if (
+        staticOpp &&
+        staticOpp.confidence >= this.config.signal.confidenceThreshold
+      ) {
+        routedOpps.push({
+          opportunity: staticOpp,
+          sourceStrategy: "static_arb",
+          priority: 1,
+          resourceClaim: {
+            marketIds: [tick.marketId],
+            estimatedExposure: 50,
+            estimatedDurationMs: 5000,
+          },
+        })
+      }
+    }
+
+    if (routedOpps.length === 0) {
       skips += 1
       return { trades, exits, skips, blocks, alerts, spreadChanges }
     }
 
+    const arbitration = this.router.arbitrate(routedOpps)
+    if (!arbitration.selected) {
+      skips += routedOpps.length
+      return { trades, exits, skips, blocks, alerts, spreadChanges }
+    }
+
+    const opp = arbitration.selected.opportunity
+
     const decision = preTradeCheck(
       opp,
-      this.portfolio.openNotional,
+      this.portfolio.effectiveOpenNotional,
       this.config.portfolio.maxOpenNotional
     )
     if (!decision.allow) {
       blocks += 1
+      alerts.push(
+        `[BLOCK] ${decision.reason}: ${opp.marketIds.join(",")} EV=${opp.evBps.toFixed(1)}bps`
+      )
       return { trades, exits, skips, blocks, alerts, spreadChanges }
     }
 
@@ -155,6 +288,7 @@ export class RealtimeEngine {
     }
 
     const orderSplits = splitOrderSize(baseSize, depthAnalysis)
+    const strategy: StrategyType = opp.strategy as StrategyType
 
     for (const split of orderSplits) {
       const limitYes = computeLimitPrice(
@@ -178,7 +312,8 @@ export class RealtimeEngine {
         tick.ts,
         this.config.execution.slippageBps,
         this.config.execution.partialFillBaseRate,
-        this.config.execution.partialFillSizeDecay
+        this.config.execution.partialFillSizeDecay,
+        strategy
       )
       this.portfolio.executeTrade(
         tick.marketId,
@@ -188,14 +323,151 @@ export class RealtimeEngine {
         tick.ts,
         this.config.execution.slippageBps,
         this.config.execution.partialFillBaseRate,
-        this.config.execution.partialFillSizeDecay
+        this.config.execution.partialFillSizeDecay,
+        strategy
       )
       trades += 1
+      alerts.push(
+        `[TRADE] ${tick.marketId} via ${strategy} EV=${opp.evBps.toFixed(1)}bps conf=${opp.confidence.toFixed(2)}`
+      )
     }
 
     this.portfolio.markToMarket(tick.marketId, tick.yesAsk, tick.noAsk)
 
     return { trades, exits, skips, blocks, alerts, spreadChanges }
+  }
+
+  private generateMicrostructureOpportunity(
+    marketId: string,
+    book: BookState,
+    events: any[],
+    now: number
+  ): RoutedOpportunity | null {
+    const recentEvents = (this.marketEvents.get(marketId) ?? [])
+      .slice(-20)
+      .flatMap((e) => e.event)
+
+    const bookMetrics = computeBookMetrics(book, undefined)
+    const tradeMetrics = computeTradeMetrics(
+      recentEvents,
+      5000,
+      DEFAULT_MICROSTRUCTURE_CONFIG.largeTradeMultiplier
+    )
+
+    const signal = detectMicrostructureOpportunity(
+      bookMetrics,
+      tradeMetrics,
+      DEFAULT_MICROSTRUCTURE_CONFIG
+    )
+
+    if (!signal || signal.direction === "neutral") {
+      return null
+    }
+
+    return {
+      opportunity: {
+        id: `${marketId}-microstructure-${now}`,
+        strategy: "microstructure",
+        marketIds: [marketId],
+        evBps: signal.evBps,
+        confidence: signal.confidence,
+        ttlMs: 2000,
+        createdAt: now,
+      },
+      sourceStrategy: "microstructure",
+      priority: 0.8,
+      resourceClaim: {
+        marketIds: [marketId],
+        estimatedExposure: 50,
+        estimatedDurationMs: 2000,
+      },
+    }
+  }
+
+  private generateStatArbOpportunities(now: number): RoutedOpportunity[] {
+    const opportunities: RoutedOpportunity[] = []
+
+    for (const pairConfig of this.pairConfigs) {
+      const priceA = this.marketPrices.get(pairConfig.marketA)
+      const priceB = this.marketPrices.get(pairConfig.marketB)
+
+      if (priceA === undefined || priceB === undefined) {
+        continue
+      }
+
+      this.spreadHistory.add(
+        pairConfig.pairId,
+        now,
+        priceA,
+        priceB,
+        pairConfig.hedgeRatio
+      )
+
+      const signal = computeStatArb(
+        this.marketPrices,
+        this.spreadHistory,
+        pairConfig
+      )
+
+      if (!signal || signal.direction === "neutral" || signal.evBps <= 0) {
+        continue
+      }
+
+      const opp = generateStatArbOpportunity(signal, pairConfig, now)
+      if (!opp) {
+        continue
+      }
+
+      opportunities.push({
+        opportunity: opp,
+        sourceStrategy: "stat_arb",
+        priority: 0.7,
+        resourceClaim: {
+          marketIds: [pairConfig.marketA, pairConfig.marketB],
+          estimatedExposure: 30,
+          estimatedDurationMs: pairConfig.maxHoldingMs,
+        },
+      })
+    }
+
+    return opportunities
+  }
+
+  private generateTermStructureOpportunities(now: number): RoutedOpportunity[] {
+    const opportunities: RoutedOpportunity[] = []
+
+    for (const termConfig of this.termConfigs) {
+      const spread = computeTermSpread(termConfig, this.marketPrices, now)
+      if (!spread) {
+        continue
+      }
+
+      const signal = generateTermOpportunity(spread, termConfig)
+      if (!signal || signal.direction === "neutral") {
+        continue
+      }
+
+      opportunities.push({
+        opportunity: {
+          id: `${termConfig.eventId}-term-${now}`,
+          strategy: "term_structure",
+          marketIds: [signal.shortMarketId, signal.longMarketId],
+          evBps: signal.evBps,
+          confidence: signal.confidence,
+          ttlMs: signal.ttlMs,
+          createdAt: now,
+        },
+        sourceStrategy: "term_structure",
+        priority: 0.6,
+        resourceClaim: {
+          marketIds: [signal.shortMarketId, signal.longMarketId],
+          estimatedExposure: 40,
+          estimatedDurationMs: signal.ttlMs,
+        },
+      })
+    }
+
+    return opportunities
   }
 
   async scanOnce(): Promise<RealtimeResult> {

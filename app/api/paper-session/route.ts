@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 import { readFileSync, existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
+import { withRateLimit } from "@/lib/api/rate-limit"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = resolve(__dirname, "../../../bot/data")
@@ -38,6 +40,17 @@ type PaperOrder = {
   strategy: StrategyType
 }
 
+function computeOrderPnl(order: PaperOrder): number {
+  if (order.filledSize <= 0) return 0
+
+  if (order.side === "YES") {
+    const exitPrice = 1 - order.price
+    return order.filledSize * (exitPrice - order.price)
+  } else {
+    return order.filledSize * order.price
+  }
+}
+
 function computeStrategyStats(
   orders: PaperOrder[],
   initialEquity: number
@@ -51,7 +64,9 @@ function computeStrategyStats(
   const stats: StrategyStats[] = []
 
   for (const strategy of strategies) {
-    const strategyOrders = orders.filter((o) => o.strategy === strategy)
+    const strategyOrders = orders.filter(
+      (o) => (o.strategy ?? "static_arb") === strategy
+    )
     const filledOrders = strategyOrders.filter(
       (o) => o.status === "FILLED" || o.status === "PARTIAL"
     )
@@ -63,8 +78,11 @@ function computeStrategyStats(
     let maxDrawdown = 0
 
     for (const order of filledOrders) {
-      const pnl = order.filledSize * (order.price - 0.5)
-      totalPnl += pnl
+      let orderPnl = order.pnl
+      if (orderPnl === 0 && order.filledSize > 0) {
+        orderPnl = computeOrderPnl(order)
+      }
+      totalPnl += orderPnl
       const newEq = equity + totalPnl
       equityCurve.push(newEq)
       if (newEq > peak) peak = newEq
@@ -95,7 +113,7 @@ function computeStrategyStats(
   return stats
 }
 
-export async function GET() {
+async function handler(_request: NextRequest) {
   try {
     if (!existsSync(SESSION_PATH)) {
       return NextResponse.json({
@@ -130,3 +148,5 @@ export async function GET() {
     )
   }
 }
+
+export const GET = withRateLimit(handler)

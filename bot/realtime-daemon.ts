@@ -18,12 +18,13 @@ import { saveSession, loadSession } from "./paper/persistence"
 import { loadConfig, resetConfigCache, type BotConfig } from "./config"
 import { autotune } from "./config/autotune"
 import type { SyntheticTick } from "./ingest/adapter"
+import { createChildLogger } from "./lib/logger"
+import { CYCLE } from "./config/constants"
 
-const TUNE_INTERVAL = 60 * 60 * 1000
+const log = createChildLogger("realtime-daemon")
 
-function ts(): string {
-  return new Date().toISOString().replace("T", " ").slice(0, 19)
-}
+let tickErrors = 0
+const MAX_TICK_ERRORS = 10
 
 function persistState(
   portfolio: PaperPortfolio,
@@ -56,13 +57,15 @@ function persistState(
 }
 
 async function main(): Promise<void> {
-  console.log(`[${ts()}] Realtime Bot Daemon starting`)
+  log.info("Realtime Bot Daemon starting")
 
   let config = loadConfig()
   const dataSourceType = config.data.dataSource.type
-  console.log(`  Data source:    ${dataSourceType}`)
-  console.log(`  Auto-tune:      every 1 hour`)
-  console.log(`  Press Ctrl+C to stop\n`)
+  log.info(
+    { dataSource: dataSourceType, autoTuneInterval: "1 hour" },
+    "Configuration loaded"
+  )
+  log.info("Press Ctrl+C to stop")
 
   const session = loadSession()
   const wallet = { address: "", safeAddress: "", privateKey: "" }
@@ -74,16 +77,21 @@ async function main(): Promise<void> {
     portfolio.peakEquity = session.portfolio.peakEquity
     for (const pos of session.positions)
       portfolio.positions.set(`${pos.marketId}:${pos.side}`, { ...pos })
-    for (const order of session.orders) portfolio.orders.push(order)
-    console.log(
-      `  Restored: ${wallet.address} (${portfolio.positions.size} positions)`
+    for (const order of session.orders)
+      portfolio.orders.push({
+        ...order,
+        strategy: order.strategy ?? "static_arb",
+      })
+    log.info(
+      { address: wallet.address, positions: portfolio.positions.size },
+      "Restored session"
     )
   } else {
     const w = generateWallet()
     wallet.address = w.address
     wallet.safeAddress = w.safeAddress
     wallet.privateKey = w.privateKey
-    console.log(`  New wallet: ${wallet.address}`)
+    log.info({ address: wallet.address }, "Created new wallet")
   }
 
   const dataSource = createDataSource(config.data.dataSource)
@@ -98,84 +106,125 @@ async function main(): Promise<void> {
 
   dataSource.start({
     onConnect: () => {
-      console.log(`[${ts()}] Data source connected`)
+      log.info("Data source connected")
     },
     onDisconnect: () => {
-      console.log(`[${ts()}] Data source disconnected`)
+      log.warn("Data source disconnected")
     },
     onError: (err) => {
-      console.error(`[${ts()}] Data source error:`, err.message)
+      log.error({ error: err.message }, "Data source error")
     },
     onTick: (tick: SyntheticTick) => {
       if (!running) return
 
-      cycleCount += 1
-      const result = engine.processTick(tick)
-      tradeCount += result.trades
-      exitCount += result.exits
+      try {
+        cycleCount += 1
+        const result = engine.processTick(tick)
+        tradeCount += result.trades
+        exitCount += result.exits
+        tickErrors = 0
 
-      if (Date.now() - lastPrintTime >= 10000) {
-        lastPrintTime = Date.now()
-        const snap = portfolio.snapshot()
-        console.log(
-          `[${ts()}] Tick #${cycleCount}: trades=${tradeCount} exits=${exitCount} equity=$${snap.equity.toFixed(2)} arb=$${snap.lockedArbProfit.toFixed(4)} DD=${snap.drawdownPct.toFixed(2)}%`
-        )
+        if (Date.now() - lastPrintTime >= CYCLE.PRINT_INTERVAL_MS) {
+          lastPrintTime = Date.now()
+          const snap = portfolio.snapshot()
+          log.info(
+            {
+              tick: cycleCount,
+              trades: tradeCount,
+              exits: exitCount,
+              equity: snap.equity,
+              arbProfit: snap.lockedArbProfit,
+              drawdownPct: snap.drawdownPct,
+            },
+            "Tick processed"
+          )
 
-        if (result.spreadChanges.length > 0) {
-          for (const change of result.spreadChanges.slice(0, 3)) {
-            console.log(
-              `  ${change.marketId}: spread ${change.oldSpread.toFixed(4)} → ${change.newSpread.toFixed(4)}`
+          if (result.spreadChanges.length > 0) {
+            log.debug(
+              { spreadChanges: result.spreadChanges.slice(0, 3) },
+              "Spread changes"
             )
           }
-        }
 
-        for (const alert of result.alerts) {
-          console.log(`  ${alert}`)
-        }
-      }
-
-      if (cycleCount % 60 === 0) {
-        persistState(
-          portfolio,
-          wallet,
-          config,
-          cycleCount,
-          tradeCount,
-          exitCount
-        )
-      }
-
-      if (Date.now() - lastTuneTime >= TUNE_INTERVAL) {
-        lastTuneTime = Date.now()
-        console.log(`\n[${ts()}] ── Auto-Tune ──`)
-        resetConfigCache()
-        const report = autotune()
-        if (report.adjustments.length > 0) {
-          for (const adj of report.adjustments) {
-            console.log(`  ${adj.param}: ${adj.old} → ${adj.new}`)
+          if (result.alerts.length > 0) {
+            log.warn({ alerts: result.alerts }, "Tick alerts")
           }
-          resetConfigCache()
-          config = loadConfig()
-        } else {
-          console.log("  No adjustments needed")
+        }
+
+        if (cycleCount % CYCLE.PERSIST_EVERY_N_TICKS === 0) {
+          persistState(
+            portfolio,
+            wallet,
+            config,
+            cycleCount,
+            tradeCount,
+            exitCount
+          )
+          log.debug({ tick: cycleCount }, "State persisted")
+        }
+
+        if (Date.now() - lastTuneTime >= CYCLE.TUNE_INTERVAL_MS) {
+          lastTuneTime = Date.now()
+          log.info("Running auto-tune")
+          try {
+            resetConfigCache()
+            const report = autotune()
+            if (report.adjustments.length > 0) {
+              log.info(
+                { adjustments: report.adjustments },
+                "Auto-tune adjustments applied"
+              )
+              resetConfigCache()
+              config = loadConfig()
+            } else {
+              log.info("No adjustments needed")
+            }
+          } catch (tuneError) {
+            log.error({ error: tuneError }, "Auto-tune failed")
+          }
+        }
+      } catch (tickError) {
+        tickErrors += 1
+        log.error(
+          { tick: cycleCount, error: tickError, consecutiveErrors: tickErrors },
+          "Tick processing failed"
+        )
+
+        if (tickErrors >= MAX_TICK_ERRORS) {
+          log.error(
+            { consecutiveErrors: tickErrors, maxErrors: MAX_TICK_ERRORS },
+            "Max tick errors reached, stopping daemon"
+          )
+          running = false
+          dataSource.stop()
+          persistState(
+            portfolio,
+            wallet,
+            config,
+            cycleCount,
+            tradeCount,
+            exitCount
+          )
+          process.exit(1)
         }
       }
     },
   })
 
   process.on("SIGINT", () => {
-    console.log(`\n[${ts()}] Shutting down...`)
+    log.info("Shutting down (SIGINT)...")
     running = false
     dataSource.stop()
     persistState(portfolio, wallet, config, cycleCount, tradeCount, exitCount)
-    console.log(
-      `[${ts()}] Daemon stopped after ${cycleCount} ticks, ${tradeCount} trades, ${exitCount} exits`
+    log.info(
+      { ticks: cycleCount, trades: tradeCount, exits: exitCount },
+      "Daemon stopped"
     )
     process.exit(0)
   })
 
   process.on("SIGTERM", () => {
-    console.log(`\n[${ts()}] Shutting down...`)
+    log.info("Shutting down (SIGTERM)...")
     running = false
     dataSource.stop()
     persistState(portfolio, wallet, config, cycleCount, tradeCount, exitCount)

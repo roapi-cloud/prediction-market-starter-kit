@@ -58,6 +58,10 @@ import {
   DEFAULT_ARBITRATION_CONFIG,
 } from "./arbitration"
 import { allocateCapital, DEFAULT_ALLOCATION_CONFIG } from "./allocation"
+import { Mutex } from "../lib/mutex"
+import { createChildLogger } from "../lib/logger"
+
+const log = createChildLogger("signal-router")
 
 export {
   computeBookMetrics,
@@ -84,53 +88,77 @@ export {
 export type BayesianVersion = "simple" | "enhanced"
 
 let globalRouter: StrategyRouter | null = null
+const routerMutex = new Mutex()
 
-export function getRouter(): StrategyRouter {
+export async function getRouter(): Promise<StrategyRouter> {
+  return routerMutex.withLock(async () => {
+    if (!globalRouter) {
+      globalRouter = createDefaultRouter()
+      log.debug("Global router initialized")
+    }
+    return globalRouter
+  })
+}
+
+export function getRouterSync(): StrategyRouter {
   if (!globalRouter) {
     globalRouter = createDefaultRouter()
   }
   return globalRouter
 }
 
-export function resetRouter(): void {
+export async function resetRouter(): Promise<void> {
+  return routerMutex.withLock(async () => {
+    globalRouter = null
+    log.debug("Global router reset")
+  })
+}
+
+export function resetRouterSync(): void {
   globalRouter = null
 }
 
-export function initializeRouterWithConfig(
+export async function initializeRouterWithConfig(
   strategies: StrategyConfig[]
-): StrategyRouter {
-  const router = new StrategyRouter()
-  for (const config of strategies) {
-    router.registerStrategy(config)
-  }
-  globalRouter = router
-  return router
+): Promise<StrategyRouter> {
+  return routerMutex.withLock(async () => {
+    const router = new StrategyRouter()
+    for (const config of strategies) {
+      router.registerStrategy(config)
+    }
+    globalRouter = router
+    log.info(
+      { strategiesCount: strategies.length },
+      "Router initialized with config"
+    )
+    return router
+  })
 }
 
-export function generateMultiStrategyOpportunities(
+export async function generateMultiStrategyOpportunities(
   feature: FeatureSnapshot,
   book: BookState,
   now: number
-): RoutedOpportunity[] {
-  const router = getRouter()
+): Promise<RoutedOpportunity[]> {
+  const router = await getRouter()
   return router.route(feature, book, now)
 }
 
-export function selectBestOpportunity(
+export async function selectBestOpportunity(
   feature: FeatureSnapshot,
   book: BookState,
   now: number
-): RoutedOpportunity | null {
-  const router = getRouter()
+): Promise<RoutedOpportunity | null> {
+  const router = await getRouter()
   return router.selectBestOpportunity(feature, book, now)
 }
 
-export function routeAndArbitrate(
+export async function routeAndArbitrate(
   feature: FeatureSnapshot,
   book: BookState,
   now: number
-): ArbitrationResult {
-  const router = getRouter()
+): Promise<ArbitrationResult> {
+  const router = await getRouter()
   return router.routeAndArbitrate(feature, book, now)
 }
 

@@ -19,9 +19,8 @@ async function main(): Promise<void> {
       "microstructure",
       "term_structure",
     ],
-    walletMode: "shared",
     initialEquity: 10_000,
-    strategyAllocation: {
+    strategyWeights: {
       static_arb: 0.4,
       stat_arb: 0.25,
       microstructure: 0.2,
@@ -30,11 +29,10 @@ async function main(): Promise<void> {
   }
 
   console.log("Configuration:")
-  console.log(`  Wallet Mode:    ${config.walletMode}`)
   console.log(`  Initial Equity: $${config.initialEquity}`)
   console.log(`  Strategies:     ${config.enabledStrategies?.join(", ")}`)
   console.log(`\n  Allocation:`)
-  const allocations = config.strategyAllocation ?? {}
+  const allocations = config.strategyWeights ?? {}
   for (const [strategy, allocation] of Object.entries(allocations)) {
     console.log(
       `    ${strategy}: ${((allocation as number) * 100).toFixed(0)}%`

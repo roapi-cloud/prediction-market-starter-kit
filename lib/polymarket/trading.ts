@@ -25,7 +25,7 @@ const REMOTE_SIGNING_URL = () =>
     : "/api/builder-sign"
 
 export async function getOrCreateApiCredentials(
-  ethersSigner: providers.JsonRpcSigner,
+  ethersSigner: providers.JsonRpcSigner
 ): Promise<ApiCredentials> {
   const tempClient = new ClobClient(CLOB_URL, CHAIN_ID, ethersSigner)
 
@@ -40,7 +40,7 @@ export async function getOrCreateApiCredentials(
 export function createTradingClient(
   ethersSigner: providers.JsonRpcSigner,
   apiCreds: ApiCredentials,
-  safeAddress: string,
+  safeAddress: string
 ) {
   const builderConfig = new BuilderConfig({
     remoteBuilderConfig: {
@@ -57,17 +57,20 @@ export function createTradingClient(
     safeAddress,
     undefined,
     false,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    builderConfig as any,
+    builderConfig
   )
 }
 
-export async function placeOrder(
-  client: ClobClient,
-  params: TradeParams,
-) {
-  if (isNaN(params.price) || isNaN(params.amount) || params.price <= 0 || params.amount <= 0) {
-    throw new Error(`Invalid order params: price=${params.price}, amount=${params.amount}`)
+export async function placeOrder(client: ClobClient, params: TradeParams) {
+  if (
+    isNaN(params.price) ||
+    isNaN(params.amount) ||
+    params.price <= 0 ||
+    params.amount <= 0
+  ) {
+    throw new Error(
+      `Invalid order params: price=${params.price}, amount=${params.amount}`
+    )
   }
 
   return client.createAndPostOrder(
@@ -81,7 +84,7 @@ export async function placeOrder(
       taker: "0x0000000000000000000000000000000000000000",
     },
     {},
-    OrderType.GTC,
+    OrderType.GTC
   )
 }
 

@@ -65,7 +65,9 @@ export function computeStrategyStats(
   const stats: StrategyStats[] = []
 
   for (const strategy of strategies) {
-    const strategyOrders = orders.filter((o) => o.strategy === strategy)
+    const strategyOrders = orders.filter(
+      (o) => (o.strategy ?? "static_arb") === strategy
+    )
     const filledOrders = strategyOrders.filter(
       (o) => o.status === "FILLED" || o.status === "PARTIAL"
     )
@@ -77,9 +79,12 @@ export function computeStrategyStats(
     let maxDrawdown = 0
 
     for (const order of filledOrders) {
-      const pnl = order.filledSize * (order.price - 0.5)
-      totalPnl += pnl
-      equity += pnl
+      let orderPnl = order.pnl
+      if (orderPnl === 0 && order.filledSize > 0) {
+        orderPnl = computeOrderPnl(order)
+      }
+      totalPnl += orderPnl
+      equity += orderPnl
       equityCurve.push(equity)
       if (equity > peak) peak = equity
       const dd = (peak - equity) / peak
@@ -107,6 +112,17 @@ export function computeStrategyStats(
   }
 
   return stats
+}
+
+function computeOrderPnl(order: PaperOrder): number {
+  if (order.filledSize <= 0) return 0
+
+  if (order.side === "YES") {
+    const exitPrice = 1 - order.price
+    return order.filledSize * (exitPrice - order.price)
+  } else {
+    return order.filledSize * order.price
+  }
 }
 
 export function loadSession(): SessionData | null {

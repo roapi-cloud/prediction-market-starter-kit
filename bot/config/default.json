@@ -1,23 +1,23 @@
 {
   "portfolio": {
     "initialEquity": 10000,
-    "maxOpenNotional": 2000
+    "maxOpenNotional": 5000
   },
   "execution": {
     "kellyCap": 0.015,
     "stoikovRiskAversion": 0.002,
     "slippageBps": 150,
-    "partialFillBaseRate": 0.5,
+    "partialFillBaseRate": 0.8,
     "partialFillSizeDecay": 0.001
   },
   "signal": {
     "costBps": 20,
-    "minEvBps": 5,
+    "minEvBps": 1,
     "confidenceThreshold": 0.1
   },
   "risk": {
-    "intradayStopPct": -2,
-    "maxDrawdownPct": -4,
+    "intradayStopPct": 3,
+    "maxDrawdownPct": 50,
     "maxPositionPct": 25
   },
   "data": {
@@ -36,5 +36,10 @@
         "subscriptions": []
       }
     }
+  },
+  "exit": {
+    "thresholdCycles": 10,
+    "minHoldTimeMs": 60000,
+    "spreadExitRatio": 0.5
   }
 }

@@ -1,14 +1,19 @@
-import { readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { loadConfig, type BotConfig } from '../config'
-import { loadSession } from '../paper/persistence'
+import { readFileSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
+import { loadConfig, type BotConfig } from "../config"
+import { loadSession } from "../paper/persistence"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const CONFIG_PATH = resolve(__dirname, 'default.json')
+const CONFIG_PATH = resolve(__dirname, "default.json")
 
 export type TuningReport = {
-  adjustments: Array<{ param: string; old: number; new: number; reason: string }>
+  adjustments: Array<{
+    param: string
+    old: number
+    new: number
+    reason: string
+  }>
   marketConditions: {
     avgSpread: number
     avgVolume: number
@@ -33,7 +38,7 @@ export function autotune(configPath?: string): TuningReport {
   const config = loadConfig(configPath)
   const session = loadSession()
 
-  const adjustments: TuningReport['adjustments'] = []
+  const adjustments: TuningReport["adjustments"] = []
 
   // Gather market conditions from session
   let avgSpread = 0.01
@@ -43,15 +48,21 @@ export function autotune(configPath?: string): TuningReport {
 
   if (session) {
     const totalOrders = session.orders.length
-    const filledOrders = session.orders.filter((o) => o.status !== 'REJECTED').length
+    const filledOrders = session.orders.filter(
+      (o) => o.status !== "REJECTED"
+    ).length
     arbHitRate = totalOrders > 0 ? filledOrders / totalOrders : 0
 
     // Compute average spread from positions
     const marketIds = new Set(session.positions.map((p) => p.marketId))
     const spreads: number[] = []
     for (const mid of marketIds) {
-      const yes = session.positions.find((p) => p.marketId === mid && p.side === 'YES')
-      const no = session.positions.find((p) => p.marketId === mid && p.side === 'NO')
+      const yes = session.positions.find(
+        (p) => p.marketId === mid && p.side === "YES"
+      )
+      const no = session.positions.find(
+        (p) => p.marketId === mid && p.side === "NO"
+      )
       if (yes && no) {
         spreads.push(yes.avgEntry + no.avgEntry - 1)
       }
@@ -60,7 +71,9 @@ export function autotune(configPath?: string): TuningReport {
       avgSpread = spreads.reduce((a, b) => a + b, 0) / spreads.length
     }
 
-    avgVolume = session.orders.reduce((acc, o) => acc + o.filledSize, 0) / Math.max(1, totalOrders)
+    avgVolume =
+      session.orders.reduce((acc, o) => acc + o.filledSize, 0) /
+      Math.max(1, totalOrders)
 
     // Average EV from the gross spread
     if (spreads.length > 0) {
@@ -68,21 +81,25 @@ export function autotune(configPath?: string): TuningReport {
     }
 
     // Rule 1: Net-after-slippage negative → increase slippage estimate
-    const netAfterSlip = session.stats.totalArbProfit - session.stats.totalSlippageCost
+    const netAfterSlip =
+      session.stats.totalArbProfit - session.stats.totalSlippageCost
     if (netAfterSlip < 0 && config.execution.slippageBps < 150) {
       const newSlippage = Math.min(150, config.execution.slippageBps + 10)
       adjustments.push({
-        param: 'execution.slippageBps',
+        param: "execution.slippageBps",
         old: config.execution.slippageBps,
         new: newSlippage,
         reason: `Net after slippage is negative ($${netAfterSlip.toFixed(2)}), raising slippage estimate`,
       })
       config.execution.slippageBps = newSlippage
-    } else if (netAfterSlip > session.stats.totalArbProfit * 0.5 && config.execution.slippageBps > 20) {
+    } else if (
+      netAfterSlip > session.stats.totalArbProfit * 0.5 &&
+      config.execution.slippageBps > 20
+    ) {
       // Slippage is eating less than 50% of profit — can afford to lower estimate
       const newSlippage = Math.max(20, config.execution.slippageBps - 5)
       adjustments.push({
-        param: 'execution.slippageBps',
+        param: "execution.slippageBps",
         old: config.execution.slippageBps,
         new: newSlippage,
         reason: `Slippage cost is low relative to profit, lowering estimate`,
@@ -94,7 +111,7 @@ export function autotune(configPath?: string): TuningReport {
     if (arbHitRate < 0.3 && config.execution.partialFillBaseRate < 0.8) {
       const newRate = Math.min(0.8, config.execution.partialFillBaseRate + 0.1)
       adjustments.push({
-        param: 'execution.partialFillBaseRate',
+        param: "execution.partialFillBaseRate",
         old: config.execution.partialFillBaseRate,
         new: newRate,
         reason: `Fill rate ${(arbHitRate * 100).toFixed(0)}% is low, increasing base fill rate`,
@@ -106,7 +123,7 @@ export function autotune(configPath?: string): TuningReport {
     if (filledOrders === 0 && config.signal.minEvBps > 1) {
       const newMinEv = Math.max(1, config.signal.minEvBps - 2)
       adjustments.push({
-        param: 'signal.minEvBps',
+        param: "signal.minEvBps",
         old: config.signal.minEvBps,
         new: newMinEv,
         reason: `No trades executed, lowering min EV threshold`,
@@ -114,13 +131,36 @@ export function autotune(configPath?: string): TuningReport {
       config.signal.minEvBps = newMinEv
     }
 
+    // Rule 3b: High block count → increase maxOpenNotional if locked profit exists
+    const blockedOrders = session.orders.filter(
+      (o) => o.status === "REJECTED"
+    ).length
+    const lockedProfit = session.stats.totalArbProfit
+    if (
+      blockedOrders > filledOrders * 2 &&
+      lockedProfit > 0 &&
+      config.portfolio.maxOpenNotional < 5000
+    ) {
+      const newMax = Math.min(5000, config.portfolio.maxOpenNotional + 500)
+      adjustments.push({
+        param: "portfolio.maxOpenNotional",
+        old: config.portfolio.maxOpenNotional,
+        new: newMax,
+        reason: `High block rate (${blockedOrders} blocks vs ${filledOrders} fills) with locked profit $${lockedProfit.toFixed(2)}, increasing capacity`,
+      })
+      config.portfolio.maxOpenNotional = newMax
+    }
+
     // Rule 4: Drawdown risk → reduce kelly cap
-    const drawdown = ((session.portfolio.peakEquity - session.portfolio.equity) / session.portfolio.peakEquity) * 100
+    const drawdown =
+      ((session.portfolio.peakEquity - session.portfolio.equity) /
+        session.portfolio.peakEquity) *
+      100
     const drawdownLimit = Math.abs(config.risk.maxDrawdownPct)
     if (drawdown > drawdownLimit * 0.5 && config.execution.kellyCap > 0.005) {
       const newCap = Math.max(0.005, config.execution.kellyCap * 0.75)
       adjustments.push({
-        param: 'execution.kellyCap',
+        param: "execution.kellyCap",
         old: config.execution.kellyCap,
         new: Number(newCap.toFixed(4)),
         reason: `Drawdown ${drawdown.toFixed(1)}% is >50% of limit, reducing position size`,
@@ -129,11 +169,16 @@ export function autotune(configPath?: string): TuningReport {
     }
 
     // Rule 5: Few arb opportunities → widen spread override for more sensitivity
-    if (marketIds.size > 0 && filledOrders < marketIds.size * 0.2 && config.data.spreadOverride < 0.03) {
-      const newSpread = Math.min(0.03, config.data.spreadOverride + 0.005)
+    const spreadOverride = config.data.spreadOverride ?? 0.01
+    if (
+      marketIds.size > 0 &&
+      filledOrders < marketIds.size * 0.2 &&
+      spreadOverride < 0.03
+    ) {
+      const newSpread = Math.min(0.03, spreadOverride + 0.005)
       adjustments.push({
-        param: 'data.spreadOverride',
-        old: config.data.spreadOverride,
+        param: "data.spreadOverride",
+        old: spreadOverride,
         new: newSpread,
         reason: `Only ${filledOrders}/${marketIds.size} markets traded, widening spread`,
       })
@@ -143,7 +188,7 @@ export function autotune(configPath?: string): TuningReport {
 
   // Write updated config
   if (adjustments.length > 0) {
-    writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8')
+    writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf8")
   }
 
   return {
@@ -153,25 +198,35 @@ export function autotune(configPath?: string): TuningReport {
 }
 
 // CLI entry point
-if (process.argv[1]?.includes('autotune')) {
+if (process.argv[1]?.includes("autotune")) {
   const report = autotune()
 
-  console.log('=== Auto-Tune Report ===\n')
+  console.log("=== Auto-Tune Report ===\n")
 
-  console.log('--- Market Conditions ---')
-  console.log(`  Avg spread:    ${(report.marketConditions.avgSpread * 10_000).toFixed(1)} bps`)
-  console.log(`  Avg volume:    ${report.marketConditions.avgVolume.toFixed(2)} per order`)
-  console.log(`  Arb hit rate:  ${(report.marketConditions.arbHitRate * 100).toFixed(1)}%`)
-  console.log(`  Avg EV:        ${report.marketConditions.avgEvBps.toFixed(1)} bps`)
+  console.log("--- Market Conditions ---")
+  console.log(
+    `  Avg spread:    ${(report.marketConditions.avgSpread * 10_000).toFixed(1)} bps`
+  )
+  console.log(
+    `  Avg volume:    ${report.marketConditions.avgVolume.toFixed(2)} per order`
+  )
+  console.log(
+    `  Arb hit rate:  ${(report.marketConditions.arbHitRate * 100).toFixed(1)}%`
+  )
+  console.log(
+    `  Avg EV:        ${report.marketConditions.avgEvBps.toFixed(1)} bps`
+  )
 
   if (report.adjustments.length === 0) {
-    console.log('\n  No adjustments needed. Config is optimal for current conditions.')
+    console.log(
+      "\n  No adjustments needed. Config is optimal for current conditions."
+    )
   } else {
     console.log(`\n--- Adjustments (${report.adjustments.length}) ---`)
     for (const adj of report.adjustments) {
       console.log(`  ${adj.param}: ${adj.old} → ${adj.new}`)
       console.log(`    Reason: ${adj.reason}`)
     }
-    console.log('\n  Config updated: bot/config/default.json')
+    console.log("\n  Config updated: bot/config/default.json")
   }
 }

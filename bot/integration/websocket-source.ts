@@ -9,6 +9,7 @@ import type {
   DataSourceCallbacks,
   WebSocketMessage,
 } from "./types"
+import { CACHE } from "../config/constants"
 
 function clampPrice(value: number): number {
   return Math.max(0.01, Math.min(0.99, value))
@@ -35,17 +36,21 @@ type PolymarketTradeMessage = {
   side: string
 }
 
+type CachedMarketInfo = {
+  tokenId: string
+  outcome: "YES" | "NO"
+  marketId: string
+  cachedAt: number
+}
+
 export class WebSocketDataSource implements IDataSource {
-  private config: DataSourceConfig["websocket"]
+  private config: Required<NonNullable<DataSourceConfig["websocket"]>>
   private ws: WebSocket | null = null
   private running = false
   private callbacks: DataSourceCallbacks = {}
   private reconnectTimer: NodeJS.Timeout | null = null
   private pingTimer: NodeJS.Timeout | null = null
-  private marketCache: Map<
-    string,
-    { tokenId: string; outcome: "YES" | "NO"; marketId: string }
-  > = new Map()
+  private marketCache: Map<string, CachedMarketInfo> = new Map()
   private lastTicks: Map<string, SyntheticTick> = new Map()
   private pendingBookUpdates: Map<
     string,
@@ -58,9 +63,46 @@ export class WebSocketDataSource implements IDataSource {
     }
   > = new Map()
   private subscribedMarketIds: Set<string> = new Set()
+  private cacheRefreshTimer: NodeJS.Timeout | null = null
 
   constructor(config: DataSourceConfig["websocket"]) {
-    this.config = config
+    this.config = {
+      url: config?.url ?? "wss://ws-subscriptions-clob.polymarket.com/ws",
+      reconnectIntervalMs: config?.reconnectIntervalMs ?? 5000,
+      pingIntervalMs: config?.pingIntervalMs ?? 30000,
+      subscriptions: config?.subscriptions ?? [],
+    }
+  }
+
+  private isCacheStale(): boolean {
+    const now = Date.now()
+    for (const entry of this.marketCache.values()) {
+      if (now - entry.cachedAt > CACHE.MARKET_DATA_TTL_MS) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private refreshCache(): void {
+    if (this.isCacheStale()) {
+      console.log("[WebSocket] Cache is stale, refreshing...")
+      this.marketCache.clear()
+      void this.loadMarketCache()
+    }
+  }
+
+  private startCacheRefreshTimer(): void {
+    this.cacheRefreshTimer = setInterval(() => {
+      this.refreshCache()
+    }, CACHE.MARKET_DATA_TTL_MS)
+  }
+
+  private stopCacheRefreshTimer(): void {
+    if (this.cacheRefreshTimer) {
+      clearInterval(this.cacheRefreshTimer)
+      this.cacheRefreshTimer = null
+    }
   }
 
   async fetchOnce(): Promise<SyntheticTick[]> {
@@ -108,6 +150,7 @@ export class WebSocketDataSource implements IDataSource {
 
   private async loadMarketCache(): Promise<string[]> {
     const marketIds: string[] = []
+    const now = Date.now()
     try {
       const events = await getEvents({
         active: true,
@@ -124,6 +167,7 @@ export class WebSocketDataSource implements IDataSource {
                 tokenId: token.token_id,
                 outcome: token.outcome.toUpperCase() as "YES" | "NO",
                 marketId: market.id,
+                cachedAt: now,
               })
             }
           }
@@ -141,6 +185,7 @@ export class WebSocketDataSource implements IDataSource {
   start(callbacks: DataSourceCallbacks): void {
     this.callbacks = callbacks
     this.running = true
+    this.startCacheRefreshTimer()
     void this.connect()
   }
 
@@ -352,6 +397,7 @@ export class WebSocketDataSource implements IDataSource {
   stop(): void {
     this.running = false
     this.stopPing()
+    this.stopCacheRefreshTimer()
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)

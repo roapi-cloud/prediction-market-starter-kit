@@ -66,6 +66,49 @@ export class PaperPortfolio {
     return total
   }
 
+  get hedgedNotional(): number {
+    const marketIds = new Set<string>()
+    for (const pos of this.positions.values()) {
+      marketIds.add(pos.marketId)
+    }
+    let hedged = 0
+    for (const mid of marketIds) {
+      const yesPos = this.positions.get(`${mid}:YES`)
+      const noPos = this.positions.get(`${mid}:NO`)
+      if (yesPos && noPos) {
+        const hedgedSize = Math.min(yesPos.size, noPos.size)
+        hedged += hedgedSize
+      }
+    }
+    return hedged
+  }
+
+  get effectiveOpenNotional(): number {
+    const marketIds = new Set<string>()
+    for (const pos of this.positions.values()) {
+      marketIds.add(pos.marketId)
+    }
+
+    let effective = 0
+    for (const mid of marketIds) {
+      const yesPos = this.positions.get(`${mid}:YES`)
+      const noPos = this.positions.get(`${mid}:NO`)
+
+      if (yesPos && noPos) {
+        const hedgedSize = Math.min(yesPos.size, noPos.size)
+        const unhedgedYes = yesPos.size - hedgedSize
+        const unhedgedNo = noPos.size - hedgedSize
+        effective += unhedgedYes * yesPos.currentPrice
+        effective += unhedgedNo * noPos.currentPrice
+      } else if (yesPos) {
+        effective += yesPos.size * yesPos.currentPrice
+      } else if (noPos) {
+        effective += noPos.size * noPos.currentPrice
+      }
+    }
+    return effective
+  }
+
   /**
    * Execute a paper trade with realistic slippage and partial fill simulation.
    *

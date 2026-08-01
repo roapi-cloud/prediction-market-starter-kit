@@ -13,7 +13,11 @@ export function preTradeCheck(
   maxOpenNotional: number
 ): RiskDecision {
   if (openNotional >= maxOpenNotional) {
-    return { allow: false, reason: "MAX_OPEN_NOTIONAL", killSwitch: false }
+    return {
+      allow: false,
+      reason: `MAX_OPEN_NOTIONAL (${openNotional.toFixed(2)} >= ${maxOpenNotional})`,
+      killSwitch: false,
+    }
   }
   if (opportunity.evBps <= 0) {
     return { allow: false, reason: "NON_POSITIVE_EV", killSwitch: false }

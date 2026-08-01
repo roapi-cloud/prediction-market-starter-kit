@@ -4,7 +4,11 @@ import { providers } from "ethers"
 import { encodeFunctionData, maxUint256, createPublicClient, http } from "viem"
 import { polygon } from "viem/chains"
 import { BuilderConfig } from "@polymarket/builder-signing-sdk"
-import { RelayClient, RelayerTransactionState, OperationType } from "@polymarket/builder-relayer-client"
+import {
+  RelayClient,
+  RelayerTransactionState,
+  OperationType,
+} from "@polymarket/builder-relayer-client"
 import { deriveSafe } from "@polymarket/builder-relayer-client/dist/builder/derive.js"
 import { getContractConfig } from "@polymarket/builder-relayer-client/dist/config/index.js"
 import {
@@ -35,8 +39,16 @@ const ERC1155_SET_APPROVAL_ABI = [
   },
 ] as const
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createEthersSigner(eip1193Provider: any) {
+export type EIP1193Provider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+  on?: (event: string, handler: (...args: unknown[]) => void) => void
+  removeListener?: (
+    event: string,
+    handler: (...args: unknown[]) => void
+  ) => void
+}
+
+export function createEthersSigner(eip1193Provider: EIP1193Provider) {
   const ethersProvider = new providers.Web3Provider(eip1193Provider)
   return ethersProvider.getSigner()
 }
@@ -48,12 +60,7 @@ export function createRelayClient(ethersSigner: providers.JsonRpcSigner) {
     },
   })
 
-  return new RelayClient(
-    RELAYER_URL,
-    CHAIN_ID,
-    ethersSigner,
-    builderConfig,
-  )
+  return new RelayClient(RELAYER_URL, CHAIN_ID, ethersSigner, builderConfig)
 }
 
 export function deriveSafeAddress(eoaAddress: string): string {
@@ -63,22 +70,28 @@ export function deriveSafeAddress(eoaAddress: string): string {
 
 export async function isSafeDeployed(
   _relayClient: RelayClient,
-  safeAddress: string,
+  safeAddress: string
 ): Promise<boolean> {
   try {
     const publicClient = createPublicClient({
       chain: polygon,
       transport: http(),
     })
-    const code = await publicClient.getCode({ address: safeAddress as `0x${string}` })
+    const code = await publicClient.getCode({
+      address: safeAddress as `0x${string}`,
+    })
     return !!code && code !== "0x"
-  } catch {
+  } catch (error) {
+    console.error(
+      "[relayer] Failed to check safe deployment:",
+      error instanceof Error ? error.message : error
+    )
     return false
   }
 }
 
 export async function deploySafeWallet(
-  relayClient: RelayClient,
+  relayClient: RelayClient
 ): Promise<string> {
   const response = await relayClient.deploy()
 
@@ -90,7 +103,7 @@ export async function deploySafeWallet(
       RelayerTransactionState.STATE_FAILED,
     ],
     "60",
-    3000,
+    3000
   )
 
   if (!result) {
@@ -101,10 +114,19 @@ export async function deploySafeWallet(
 }
 
 export async function setAllTokenApprovals(
-  relayClient: RelayClient,
+  relayClient: RelayClient
 ): Promise<void> {
-  const erc20Spenders = [CTF_ADDRESS, CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE, NEG_RISK_ADAPTER]
-  const erc1155Operators = [CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE, NEG_RISK_ADAPTER]
+  const erc20Spenders = [
+    CTF_ADDRESS,
+    CTF_EXCHANGE,
+    NEG_RISK_CTF_EXCHANGE,
+    NEG_RISK_ADAPTER,
+  ]
+  const erc1155Operators = [
+    CTF_EXCHANGE,
+    NEG_RISK_CTF_EXCHANGE,
+    NEG_RISK_ADAPTER,
+  ]
 
   const txs = [
     ...erc20Spenders.map((spender) => ({
@@ -129,14 +151,17 @@ export async function setAllTokenApprovals(
     })),
   ]
 
-  const response = await relayClient.execute(txs, "Set all token approvals for trading")
+  const response = await relayClient.execute(
+    txs,
+    "Set all token approvals for trading"
+  )
   await response.wait()
 }
 
 export async function transferToSafe(
   ethersSigner: providers.JsonRpcSigner,
   safeAddress: string,
-  amount: bigint,
+  amount: bigint
 ): Promise<string> {
   const transferData = encodeFunctionData({
     abi: [

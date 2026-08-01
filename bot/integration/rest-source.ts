@@ -13,14 +13,17 @@ function clampPrice(value: number): number {
 }
 
 export class RestDataSource implements IDataSource {
-  private config: DataSourceConfig["rest"]
+  private config: Required<NonNullable<DataSourceConfig["rest"]>>
   private running = false
   private pollTimer: NodeJS.Timeout | null = null
   private callbacks: DataSourceCallbacks = {}
   private lastTicks: Map<string, SyntheticTick> = new Map()
 
   constructor(config: DataSourceConfig["rest"]) {
-    this.config = config
+    this.config = {
+      pollIntervalMs: config?.pollIntervalMs ?? 60000,
+      tickLimit: config?.tickLimit ?? 50,
+    }
   }
 
   async fetchOnce(): Promise<SyntheticTick[]> {

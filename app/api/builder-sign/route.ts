@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 import { buildHmacSignature } from "@polymarket/builder-signing-sdk"
+import { withRateLimit } from "@/lib/api/rate-limit"
 
-export async function POST(request: Request) {
+async function handler(request: NextRequest) {
   const origin = request.headers.get("origin")
   const referer = request.headers.get("referer")
   if (!origin && !referer) {
@@ -13,7 +15,10 @@ export async function POST(request: Request) {
   const passphrase = process.env.POLY_BUILDER_PASSPHRASE
 
   if (!key || !secret || !passphrase) {
-    return NextResponse.json({ error: "Builder credentials not configured" }, { status: 500 })
+    return NextResponse.json(
+      { error: "Builder credentials not configured" },
+      { status: 500 }
+    )
   }
 
   try {
@@ -25,7 +30,7 @@ export async function POST(request: Request) {
       parseInt(sigTimestamp),
       method,
       path,
-      body,
+      body
     )
 
     return NextResponse.json({
@@ -34,7 +39,13 @@ export async function POST(request: Request) {
       POLY_BUILDER_API_KEY: key,
       POLY_BUILDER_PASSPHRASE: passphrase,
     })
-  } catch {
-    return NextResponse.json({ error: "Internal signing error" }, { status: 500 })
+  } catch (error) {
+    console.error("[builder-sign] Error:", error)
+    return NextResponse.json(
+      { error: "Internal signing error" },
+      { status: 500 }
+    )
   }
 }
+
+export const POST = withRateLimit(handler)

@@ -1,18 +1,18 @@
 import type { SyntheticTick } from "../ingest/adapter"
 
-export type DataSourceType = "rest" | "websocket"
+export type DataSourceType = "rest" | "websocket" | "mock"
 
 export type DataSourceConfig = {
   type: DataSourceType
-  rest: {
+  rest?: {
     pollIntervalMs: number
     tickLimit: number
   }
-  websocket: {
+  websocket?: {
     url: string
     reconnectIntervalMs: number
-    pingIntervalMs: number
-    subscriptions: string[]
+    pingIntervalMs?: number
+    subscriptions?: string[]
   }
 }
 
